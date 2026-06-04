@@ -1,0 +1,35 @@
+/**
+ * electron/services/authService.cjs
+ * Port of C# AuthService.
+ */
+const bcrypt = require('bcryptjs');
+const { getByUsername } = require('../db/repositories/userRepository.cjs');
+
+const AuthService = {
+    async login(username, password) {
+        const user = await getByUsername(username);
+        if (!user) {
+            return { success: false, message: 'Invalid username or password' };
+        }
+        
+        if (user.status !== 'Active') {
+            return { success: false, message: 'User account is inactive or disabled' };
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return { success: false, message: 'Invalid username or password' };
+        }
+
+        // Return user without password
+        const { password: _, ...safeUser } = user;
+        return { success: true, user: safeUser };
+    },
+
+    async hashPassword(password) {
+        const salt = await bcrypt.genSalt(10);
+        return await bcrypt.hash(password, salt);
+    }
+};
+
+module.exports = AuthService;
