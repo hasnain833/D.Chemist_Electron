@@ -50,7 +50,11 @@ export interface Medicine {
   barcode?: string;
   gstPercent: number;
   stockQty: number;
+  purchasePrice?: number;
   sellingPrice: number;
+  unitsPerPack?: number;
+  packetsPerBox?: number;
+  defaultEntryMode?: string;
   expiryDate?: Date;
   createdAt: Date;
 }

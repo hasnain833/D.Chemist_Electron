@@ -1,48 +1,87 @@
 import { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  CalendarDays, 
-  Activity, 
-  Download, 
-  RefreshCw, 
-  TrendingUp, 
-  RotateCcw, 
-  ShieldCheck, 
-  ArrowUpRight, 
-  ArrowDownRight,
-  ChevronRight,
-  TrendingDown,
+import {
+  FileText,
+  CalendarDays,
+  Activity,
+  Download,
+  RefreshCw,
+  TrendingUp,
   Percent,
-  Receipt
 } from 'lucide-react';
+
+interface SaleSummary {
+  id: number;
+  bill_no: string;
+  customer_name: string;
+  grand_total: string | number;
+  sale_date: string;
+  status: string;
+  cashier_name: string;
+}
+
+interface SaleItem {
+  id: number;
+  medicine_name: string;
+  quantity: number;
+  returned_qty: number;
+  unit_price: string | number;
+  subtotal: string | number;
+  purchase_price?: string | number;
+}
+
+interface SaleDetails extends SaleSummary {
+  items: SaleItem[];
+}
 
 export default function Reports() {
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [reportData, setReportData] = useState<any>(null);
+  const [dailyBills, setDailyBills] = useState<SaleSummary[]>([]);
+  const [selectedBill, setSelectedBill] = useState<SaleSummary | null>(null);
+  const [selectedBillDetails, setSelectedBillDetails] = useState<SaleDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isBillDetailsLoading, setIsBillDetailsLoading] = useState(false);
 
   useEffect(() => {
     fetchReport();
+    setSelectedBill(null);
+    setSelectedBillDetails(null);
   }, [reportDate]);
 
   const fetchReport = async () => {
     setIsLoading(true);
     try {
-      const res = await (window as any).electronAPI.dbQuery('dashboard:getFinancialReport', { startDate: reportDate, endDate: reportDate });
-      if (res.success && res.data.length > 0) {
-        setReportData(res.data[0]);
+      // 1. Fetch Daily KPI summaries
+      const resKpi = await (window as any).electronAPI.dbQuery('dashboard:getFinancialReport', {
+        startDate: `${reportDate} 00:00:00`,
+        endDate: `${reportDate} 23:59:59`
+      });
+      if (resKpi.success && resKpi.data.length > 0) {
+        setReportData(resKpi.data[0]);
       } else {
-        setReportData({ 
-          gross_sales: 0, 
-          total_tax: 0, 
-          total_discount: 0, 
-          total_returns: 0, 
-          net_sales: 0, 
-          total_sales_count: 0, 
+        setReportData({
+          gross_sales: 0,
+          total_tax: 0,
+          total_discount: 0,
+          total_returns: 0,
+          net_sales: 0,
+          total_sales_count: 0,
           returns_count: 0,
           fbr_sales_count: 0,
-          internal_sales_count: 0
+          internal_sales_count: 0,
+          total_profit: 0
         });
+      }
+
+      // 2. Fetch all sales bills for that day
+      const resBills = await (window as any).electronAPI.dbQuery('sales:getAll', {
+        startDate: `${reportDate} 00:00:00`,
+        endDate: `${reportDate} 23:59:59`
+      });
+      if (resBills.success) {
+        setDailyBills(resBills.data);
+      } else {
+        setDailyBills([]);
       }
     } catch (err) {
       console.error(err);
@@ -51,10 +90,33 @@ export default function Reports() {
     }
   };
 
+  const loadBillDetails = async (billId: number) => {
+    setIsBillDetailsLoading(true);
+    try {
+      const res = await (window as any).electronAPI.dbQuery('sales:getById', { id: billId });
+      if (res.success) {
+        setSelectedBillDetails(res.data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsBillDetailsLoading(false);
+    }
+  };
+
   const handleExportCSV = () => {
     if (!reportData) return;
-    const headers = ['Date', 'Total Bills', 'Gross Sales', 'Returns', 'Net Sales', 'Tax', 'Discounts'];
-    const values = [reportDate, reportData.total_sales_count, reportData.gross_sales, reportData.total_returns, reportData.net_sales, reportData.total_tax, reportData.total_discount];
+    const headers = ['Date', 'Total Bills', 'Gross Sales', 'Returns', 'Net Sales', 'Tax', 'Discounts', 'Total Profit'];
+    const values = [
+      reportDate,
+      reportData.total_sales_count,
+      reportData.gross_sales,
+      reportData.total_returns,
+      reportData.net_sales,
+      reportData.total_tax,
+      reportData.total_discount,
+      reportData.total_profit
+    ];
     const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + values.join(",");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -65,201 +127,264 @@ export default function Reports() {
     document.body.removeChild(link);
   };
 
-  return (
-    <div className="space-y-8 animate-in fade-in duration-700 max-w-7xl mx-auto pb-12">
-      {/* Premium Header Section */}
-      <div className="relative overflow-hidden bg-slate-900 rounded-3xl p-8 text-white shadow-2xl shadow-slate-200">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -mr-32 -mt-32"></div>
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -ml-32 -mb-32"></div>
-        
-        <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/20 rounded-xl border border-blue-500/30">
-                <FileText className="text-blue-400" size={24} />
-              </div>
-              <h1 className="text-3xl font-bold tracking-tight">Daily Z-Report</h1>
-            </div>
-            <p className="text-slate-400 text-sm max-w-md">Comprehensive financial summary for sales, taxes, and compliance metrics.</p>
-          </div>
+  const formatTimeString = (dateStr: string) => {
+    return new Date(dateStr).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-1.5 flex items-center">
-              <CalendarDays className="ml-3 text-slate-400" size={18} />
-              <input
-                type="date"
-                value={reportDate}
-                onChange={(e) => setReportDate(e.target.value)}
-                className="bg-transparent text-white px-3 py-2 text-sm font-bold outline-none focus:ring-0"
-              />
-            </div>
-            <button 
-              onClick={handleExportCSV}
-              className="bg-white text-slate-900 px-6 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 hover:bg-slate-100 transition-all shadow-lg active:scale-95"
-            >
-              <Download size={18} />
-              Export Report
-            </button>
+  // Summary totals for selected bill details
+  const billGrandTotal = selectedBillDetails
+    ? selectedBillDetails.items.reduce((sum, item) => {
+      const netQty = item.quantity - item.returned_qty;
+      return sum + (netQty * parseFloat(item.unit_price.toString()));
+    }, 0)
+    : 0;
+
+  const billTotalProfit = selectedBillDetails
+    ? selectedBillDetails.items.reduce((sum, item) => {
+      const netQty = item.quantity - item.returned_qty;
+      const unitPrice = parseFloat(item.unit_price.toString());
+      const purchasePrice = parseFloat(item.purchase_price?.toString() || '0');
+      return sum + (netQty * (unitPrice - purchasePrice));
+    }, 0)
+    : 0;
+
+  return (
+    <div className="h-full flex flex-col bg-[#F8F9FA] overflow-hidden animate-fade-in">
+
+      {/* Top Header Block with linear gradient styling */}
+      <div className="bg-linear-to-r from-[#00D2FF] to-[#3a7bd5] px-[40px] py-[24px] flex items-center justify-between shadow-md shrink-0">
+        <div className="flex items-center gap-5">
+          <div className="bg-white w-12 h-12 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+            <FileText className="text-[#3a7bd5]" size={24} />
           </div>
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-bold text-white tracking-tight">Z-Report Financials</h1>
+            <span className="text-xs text-slate-100 font-medium opacity-90">Daily Z-Report auditing summary, invoice lists, and net profit analysis.</span>
+          </div>
+        </div>
+
+        {/* Date Selector & Export Actions */}
+        <div className="flex items-center gap-4 select-none">
+          <div className="bg-white/10 border border-white/20 rounded-lg p-1 flex items-center shrink-0">
+            <CalendarDays className="ml-2 text-white" size={16} />
+            <input
+              type="date"
+              value={reportDate}
+              onChange={(e) => setReportDate(e.target.value)}
+              className="bg-transparent text-white px-2 py-1 text-xs font-bold outline-none focus:ring-0 cursor-pointer"
+            />
+          </div>
+          <button
+            onClick={handleExportCSV}
+            disabled={!reportData}
+            className="h-8 px-4 bg-white text-slate-900 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none border-0 disabled:opacity-50"
+          >
+            <Download size={14} /> Export CSV
+          </button>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="h-96 flex flex-col items-center justify-center text-slate-400 gap-4">
-          <RefreshCw className="animate-spin text-blue-500" size={48} />
-          <p className="text-sm font-bold uppercase tracking-widest animate-pulse">Calculating Financials...</p>
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-4">
+          <RefreshCw className="animate-spin text-[#00D2FF]" size={48} />
+          <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Calculating Z-Report Financials...</p>
         </div>
-      ) : reportData && (
-        <div className="space-y-8">
+      ) : (
+        <div className="flex-1 flex flex-col px-[40px] py-[24px] gap-6 overflow-hidden min-h-0">
+
           {/* KPI Cards Row */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Gross Revenue */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600 group-hover:scale-110 transition-transform">
-                  <TrendingUp size={24} />
+          {reportData && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+
+              {/* Daily Sales Card */}
+              <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm flex items-center gap-4">
+                <div className="w-10 h-10 bg-[#E6F4EA] rounded-lg flex items-center justify-center shrink-0">
+                  <TrendingUp className="text-[#16A34A]" size={18} />
                 </div>
-                <div className="flex items-center gap-1 text-emerald-600 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg">
-                  <ArrowUpRight size={14} />
-                  Live
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[11px] font-semibold text-[#718096]">Daily Sales</span>
+                  <span className="text-xl font-bold text-[#111827] mt-0.5 truncate">
+                    Rs. {parseFloat(reportData.net_sales.toString()).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
                 </div>
               </div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Gross Sales</p>
-              <h3 className="text-3xl font-black text-slate-800 tracking-tight">Rs. {Number(reportData.gross_sales).toLocaleString()}</h3>
-              <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between text-[11px] font-bold text-slate-500">
-                <span>Total Invoices</span>
-                <span className="text-slate-800">{reportData.total_sales_count}</span>
+
+              {/* Daily Earnings (Profit) Card */}
+              <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm flex items-center gap-4">
+                <div className="w-10 h-10 bg-[#EFF6FF] rounded-lg flex items-center justify-center shrink-0">
+                  <Percent className="text-[#2563EB]" size={18} />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[11px] font-semibold text-[#718096]">Daily Earning (Profit)</span>
+                  <span className="text-xl font-bold text-[#2563EB] mt-0.5 truncate">
+                    Rs. {parseFloat(reportData.total_profit.toString()).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Total Daily Bills Card */}
+              <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm flex items-center gap-4">
+                <div className="w-10 h-10 bg-[#F3F4F6] rounded-lg flex items-center justify-center shrink-0">
+                  <Activity className="text-[#4B5563]" size={18} />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[11px] font-semibold text-[#718096]">Daily Bill Numbers</span>
+                  <span className="text-xl font-bold text-[#111827] mt-0.5 truncate">
+                    {reportData.total_sales_count} Bills
+                  </span>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* Master Detail Section */}
+          <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
+
+            {/* Left Column: Bills list */}
+            <div className="w-[450px] bg-white border border-[#E2E8F0] rounded-xl flex flex-col overflow-hidden shadow-sm shrink-0">
+              <div className="bg-[#F7FAFC] px-4 py-3 border-b border-[#E2E8F0] shrink-0 select-none">
+                <span className="text-sm font-bold text-[#4A5568]">Bills</span>
+              </div>
+
+              <div className="flex-1 overflow-auto custom-scrollbar bg-white divide-y divide-[#F1F5F9]">
+                {dailyBills.length === 0 ? (
+                  <div className="flex items-center justify-center py-16 text-slate-400 text-xs italic select-none">
+                    No bills generated on this date.
+                  </div>
+                ) : (
+                  dailyBills.map((bill) => (
+                    <div
+                      key={bill.id}
+                      onClick={() => {
+                        setSelectedBill(bill);
+                        loadBillDetails(bill.id);
+                      }}
+                      className={`p-4 flex items-center justify-between cursor-pointer border-b border-[#F1F5F9] transition-colors ${selectedBill?.id === bill.id ? 'bg-[#00D2FF]/5 border-l-4 border-l-[#00D2FF] pl-3' : 'hover:bg-slate-50/50'
+                        }`}
+                    >
+                      <div className="grow min-w-0 pr-3">
+                        <div className="font-bold text-[#111827] text-sm truncate">{bill.bill_no}</div>
+                        <div className="text-xs text-[#718096] truncate mt-0.5">{bill.customer_name || 'Walking Customer'}</div>
+                      </div>
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="font-bold text-sm text-[#16A34A]">
+                          Rs. {parseFloat(bill.grand_total.toString()).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-[10px] text-[#9CA3AF] mt-0.5">
+                          {formatTimeString(bill.sale_date)}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
-            {/* Total Returns */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-rose-50 rounded-2xl text-rose-600 group-hover:scale-110 transition-transform">
-                  <RotateCcw size={24} />
+            {/* Right Column: Selected Bill Details */}
+            <div className="flex-1 bg-white border border-[#E2E8F0] rounded-xl flex flex-col overflow-hidden shadow-sm">
+              <div className="bg-[#F7FAFC] px-5 py-4 border-b border-[#E2E8F0] flex items-center justify-between shrink-0 select-none">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm font-bold text-[#111827] uppercase tracking-wider">Bill Details</h2>
+                  {selectedBill && (
+                    <span className="text-xs font-semibold text-[#64748B]">{selectedBill.bill_no}</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-1 text-rose-600 font-bold text-xs bg-rose-50 px-2 py-1 rounded-lg">
-                  <TrendingDown size={14} />
-                  Adjusted
-                </div>
+                {selectedBillDetails && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">
+                    {selectedBillDetails.status}
+                  </span>
+                )}
               </div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Returns</p>
-              <h3 className="text-3xl font-black text-slate-800 tracking-tight">Rs. {Number(reportData.total_returns).toLocaleString()}</h3>
-              <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between text-[11px] font-bold text-slate-500">
-                <span>Return Events</span>
-                <span className="text-rose-600">{reportData.returns_count}</span>
+
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {!selectedBill ? (
+                  <div className="grow flex flex-col items-center justify-center py-24 text-slate-300 select-none">
+                    <FileText size={64} className="opacity-15 mb-3" />
+                    <span className="text-sm font-semibold text-slate-400">Select a bill to view details</span>
+                  </div>
+                ) : isBillDetailsLoading ? (
+                  <div className="grow flex flex-col items-center justify-center py-24 text-slate-400 text-sm select-none">
+                    <RefreshCw className="animate-spin mr-2" size={16} /> Loading bill details...
+                  </div>
+                ) : selectedBillDetails ? (
+                  <>
+                    {/* Item Grid Header */}
+                    <div className="bg-[#F9FAFB] border-b border-[#E2E8F0] px-5 py-3 grid grid-cols-[3fr_1fr_1.5fr_1.5fr_1.5fr_1.5fr] gap-2 text-[11px] font-bold text-[#64748B] shrink-0 select-none">
+                      <div>Item</div>
+                      <div className="text-right">Qty</div>
+                      <div className="text-right">S.Price</div>
+                      <div className="text-right">Subtotal</div>
+                      <div className="text-right">P.Price</div>
+                      <div className="text-right">Profit</div>
+                    </div>
+
+                    {/* Items Table List */}
+                    <div className="flex-1 overflow-auto custom-scrollbar divide-y divide-[#F1F5F9]">
+                      {selectedBillDetails.items.map((item) => {
+                        const netQty = item.quantity - item.returned_qty;
+                        const unitPrice = parseFloat(item.unit_price.toString());
+                        const netSubtotal = netQty * unitPrice;
+                        const purchasePrice = parseFloat((item as any).purchase_price?.toString() || '0');
+                        const profit = netSubtotal - (netQty * purchasePrice);
+
+                        return (
+                          <div key={item.id} className="px-5 py-3 grid grid-cols-[3fr_1fr_1.5fr_1.5fr_1.5fr_1.5fr] gap-2 text-xs items-center hover:bg-slate-50/50 transition-colors">
+                            <div className="font-semibold text-[#111827] truncate pr-2" title={item.medicine_name}>
+                              {item.medicine_name}
+                            </div>
+                            <div className="text-right text-[#4A5568]">{netQty}</div>
+                            <div className="text-right text-[#4A5568]">
+                              Rs. {unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            <div className="text-right font-bold text-[#111827]">
+                              Rs. {netSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            <div className="text-right text-[#9CA3AF]">
+                              Rs. {purchasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            <div className="text-right font-black text-blue-600">
+                              Rs. {profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Summary Footer */}
+                    <div className="pt-4 border-t border-[#E2E8F0] px-5 py-4 bg-[#F8FAFC] shrink-0">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] font-semibold text-[#64748B]">Total Amount</span>
+                          <span className="text-lg font-bold text-[#111827]">
+                            Rs. {billGrandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 items-end">
+                          <span className="text-[11px] font-semibold text-[#64748B]">Total Profit</span>
+                          <span className="text-xl font-black text-blue-600">
+                            Rs. {billTotalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="grow flex flex-col items-center justify-center py-24 text-slate-400 text-xs italic select-none">
+                    Failed to load details.
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Net Revenue */}
-            <div className="bg-indigo-600 p-6 rounded-3xl shadow-xl shadow-indigo-100 group relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16"></div>
-              <div className="flex justify-between items-start mb-4 relative z-10">
-                <div className="p-3 bg-white/20 rounded-2xl text-white group-hover:scale-110 transition-transform">
-                  <Activity size={24} />
-                </div>
-                <span className="px-2 py-1 bg-white/20 rounded-lg text-[10px] font-bold text-white uppercase tracking-widest">Final Net</span>
-              </div>
-              <p className="text-xs font-bold text-indigo-100 uppercase tracking-widest mb-1 relative z-10">Net Daily Revenue</p>
-              <h3 className="text-3xl font-black text-white tracking-tight relative z-10">Rs. {Number(reportData.net_sales).toLocaleString()}</h3>
-              <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between text-[11px] font-bold text-indigo-100 relative z-10">
-                <span>Real-time Settlement</span>
-                <ChevronRight size={14} />
-              </div>
-            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Tax & Discount Breakdown */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-6">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Percent className="text-blue-600" size={20} />
-                Tax & Discounts
-              </h2>
-              
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                      <Receipt size={16} />
-                    </div>
-                    <span className="text-sm font-bold text-slate-600">Tax Collected</span>
-                  </div>
-                  <span className="text-lg font-black text-slate-800">Rs. {Number(reportData.total_tax).toLocaleString()}</span>
-                </div>
-
-                <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-amber-100 text-amber-600 rounded-lg">
-                      <Percent size={16} />
-                    </div>
-                    <span className="text-sm font-bold text-slate-600">Discounts Given</span>
-                  </div>
-                  <span className="text-lg font-black text-amber-600">Rs. {Number(reportData.total_discount).toLocaleString()}</span>
-                </div>
-              </div>
-
-              <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 flex items-start gap-3">
-                <Activity className="text-blue-500 shrink-0 mt-1" size={16} />
-                <p className="text-[11px] text-blue-700 leading-relaxed font-medium">
-                  Financial figures represent processed and confirmed transactions only. Voided invoices are excluded from these calculations.
-                </p>
-              </div>
-            </div>
-
-            {/* FBR Compliance Card */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <ShieldCheck className="text-indigo-600" size={20} />
-                  Tax Compliance
-                </h2>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">FBR Pakistan</span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Reported to FBR</p>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-black text-indigo-600">{reportData.fbr_sales_count}</span>
-                    <span className="text-[10px] font-bold text-slate-400">Bills</span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-indigo-600 h-full rounded-full transition-all duration-1000" 
-                      style={{ width: `${(reportData.fbr_sales_count / (reportData.total_sales_count || 1)) * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Internal Only</p>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-black text-slate-400">{reportData.internal_sales_count}</span>
-                    <span className="text-[10px] font-bold text-slate-400">Bills</span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-slate-400 h-full rounded-full transition-all duration-1000" 
-                      style={{ width: `${(reportData.internal_sales_count / (reportData.total_sales_count || 1)) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 p-4 border border-indigo-100 rounded-2xl bg-indigo-50/30 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></div>
-                  <span className="text-xs font-bold text-indigo-900">Compliance Rate</span>
-                </div>
-                <span className="text-lg font-black text-indigo-600">
-                  {Math.round((reportData.fbr_sales_count / (reportData.total_sales_count || 1)) * 100)}%
-                </span>
-              </div>
-            </div>
-          </div>
         </div>
       )}
+
     </div>
   );
 }

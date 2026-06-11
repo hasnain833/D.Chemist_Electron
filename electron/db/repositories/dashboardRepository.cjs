@@ -42,6 +42,41 @@ const DashboardRepository = {
     };
   },
 
+  /** Actual list of low stock items. */
+  async getLowStockList(limit = 10) {
+    return query(`
+      SELECT m.name, SUM(b.remaining_units) as total_remaining
+      FROM inventory_batches b
+      JOIN medicines m ON m.id = b.medicine_id
+      GROUP BY m.name
+      HAVING COALESCE(SUM(b.remaining_units), 0) <= 10
+      ORDER BY total_remaining ASC
+      LIMIT $1
+    `, [limit]);
+  },
+
+  /** Actual list of expiring soon items. */
+  async getExpiringSoonList(limit = 10) {
+    return query(`
+      SELECT m.name, b.batch_no, b.expiry_date
+      FROM inventory_batches b
+      JOIN medicines m ON m.id = b.medicine_id
+      WHERE b.expiry_date <= NOW() + INTERVAL '90 days' AND b.remaining_units > 0
+      ORDER BY b.expiry_date ASC
+      LIMIT $1
+    `, [limit]);
+  },
+
+  /** List of recent sales. */
+  async getRecentSalesList(limit = 10) {
+    return query(`
+      SELECT invoice_no as invoice, sale_date as date, grand_total as total
+      FROM sales
+      ORDER BY sale_date DESC
+      LIMIT $1
+    `, [limit]);
+  },
+
   /** Sales chart data — last N days. */
   async getSalesTrend(days = 30) {
     return query(`
@@ -86,10 +121,12 @@ const DashboardRepository = {
         COUNT(DISTINCT s.id)               AS total_sales_count,
         COUNT(DISTINCT CASE WHEN si.returned_qty > 0 THEN s.id END) AS returns_count,
         COUNT(DISTINCT CASE WHEN s.fbr_reported = true THEN s.id END) AS fbr_sales_count,
-        COUNT(DISTINCT CASE WHEN s.fbr_reported = false THEN s.id END) AS internal_sales_count
+        COUNT(DISTINCT CASE WHEN s.fbr_reported = false THEN s.id END) AS internal_sales_count,
+        COALESCE(SUM((si.quantity - si.returned_qty) * (si.unit_price - COALESCE(ib.unit_cost, 0))), 0) AS total_profit
       FROM sales s
       LEFT JOIN sale_items si ON si.sale_id = s.id
-      WHERE s.sale_date >= $1 AND s.sale_date <= $2
+      LEFT JOIN inventory_batches ib ON ib.id = si.batch_id
+      WHERE s.sale_date >= $1 AND s.sale_date <= $2 AND s.status != 'Voided'
       GROUP BY s.sale_date::date
       ORDER BY report_date ASC
     `, [startDate, endDate]);

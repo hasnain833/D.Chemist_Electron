@@ -18,6 +18,7 @@ const SupplierRepo     = require('./repositories/supplierRepository.cjs');
 const CustomerRepo     = require('./repositories/customerRepository.cjs');
 const AuditRepo        = require('./repositories/auditRepository.cjs');
 const DashboardRepo    = require('./repositories/dashboardRepository.cjs');
+const PurchaseInvoiceRepo = require('./repositories/purchaseInvoiceRepository.cjs');
 
 // ---------------------------------------------------------------------------
 // Route map:  queryName → async (args) => result
@@ -103,6 +104,18 @@ const routes = {
   'dashboard:getSalesTrend':(a) => DashboardRepo.getSalesTrend(a.days),
   'dashboard:getTopMedicines':(a) => DashboardRepo.getTopMedicines(a.limit),
   'dashboard:getFinancialReport':(a) => DashboardRepo.getFinancialReport(a.startDate, a.endDate),
+  'dashboard:getLowStock': (a) => DashboardRepo.getLowStockList(a.limit),
+  'dashboard:getExpiring': (a) => DashboardRepo.getExpiringSoonList(a.limit),
+  'dashboard:getRecentSales': (a) => DashboardRepo.getRecentSalesList(a.limit),
+
+  // ── Purchase Invoices ─────────────────────────────────────────────────────
+  'invoices:getAll':       (a) => PurchaseInvoiceRepo.getAll(),
+  'invoices:getItems':     (a) => PurchaseInvoiceRepo.getInvoiceItems(a.invoiceId),
+  'invoices:search':       (a) => PurchaseInvoiceRepo.search(a.invoiceNo, a.supplierName, a.date),
+  'invoices:delete':       (a) => PurchaseInvoiceRepo.delete(a.invoiceId),
+  'invoices:cleanup':      (a) => PurchaseInvoiceRepo.cleanupFullySoldInvoices(),
+  'invoices:update':       (a) => PurchaseInvoiceRepo.updateInvoiceItems(a.invoiceId, a.items),
+  'invoices:stockIn':      (a) => PurchaseInvoiceRepo.processStockIn(a.supplierName, a.invoiceNo, a.date, a.items),
 };
 
 // ---------------------------------------------------------------------------

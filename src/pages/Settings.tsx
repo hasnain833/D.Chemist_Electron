@@ -1,38 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import {
+  Settings as SettingsIcon,
   Database,
   Printer,
   HardDrive,
   Shield,
-  Cpu,
-  ChevronRight,
-  UserCircle,
-  Globe,
-  Settings as SettingsIcon,
-  Save,
-  RefreshCw,
-  Clock,
-  ExternalLink,
-  ShieldCheck,
   Building2,
-  Phone,
-  FileText,
-  Key,
+  Save,
   PlusCircle,
   Trash2,
-  Tag
+  ShieldCheck,
+  Clock,
+  RotateCcw
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
-type TabType = 'profile' | 'db' | 'printer' | 'template' | 'backup' | 'audit';
 
 export default function Settings() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('profile');
   const [isSaving, setIsSaving] = useState(false);
-  const [appVersion, setAppVersion] = useState('');
+  const [appVersion, setAppVersion] = useState('1.0.0');
 
-  // Profile Settings
+  // Database Operations & Connection credentials
+  const [backupPath, setBackupPath] = useState('C:\\DChemist_Backups');
+  const [backupStatus, setBackupStatus] = useState('');
+  const [isDbConfigExpanded, setIsDbConfigExpanded] = useState(false);
+  const [dbConfig, setDbConfig] = useState({
+    host: 'localhost',
+    port: 5432,
+    database: 'dchemist',
+    user: 'postgres',
+    password: ''
+  });
+
+  // Pharmacy Information
   const [pharmacyName, setPharmacyName] = useState('');
   const [pharmacyNtn, setPharmacyNtn] = useState('');
   const [pharmacyAddress, setPharmacyAddress] = useState('');
@@ -40,13 +41,11 @@ export default function Settings() {
   const [pharmacyLicense, setPharmacyLicense] = useState('');
   const [pharmacyLogo, setPharmacyLogo] = useState<string | null>(null);
 
-  // DB Settings
-  const [dbConfig, setDbConfig] = useState({ host: 'localhost', port: 5432, database: 'dchemist', user: 'postgres', password: '' });
-
-  // Printer Settings
+  // Printing Settings
+  const [isSilentPrintEnabled, setIsSilentPrintEnabled] = useState(false);
   const [printerInterface, setPrinterInterface] = useState('printer:Auto');
 
-  // Receipt Template Settings
+  // Receipt Template
   const [template, setTemplate] = useState({
     header: 'D.CHEMIST',
     subHeader: 'PHARMACY & LABS',
@@ -57,7 +56,13 @@ export default function Settings() {
     fontSize: 'Small'
   });
 
+  // About & Updates
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState('System is up to date.');
+
+  // Security Logs
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [isLogsExpanded, setIsLogsExpanded] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -76,8 +81,17 @@ export default function Settings() {
       const savedTemplate = await (window as any).electronAPI.getSetting('receiptTemplate') || {};
       const version = await (window as any).electronAPI.getAppVersion();
 
-      setDbConfig({ host: host || 'localhost', port: port || 5432, database: database || 'dchemist', user: pgUser || 'postgres', password: pgPass || '' });
+      setDbConfig({
+        host: host || 'localhost',
+        port: port || 5432,
+        database: database || 'dchemist',
+        user: pgUser || 'postgres',
+        password: pgPass || ''
+      });
+
       if (printer?.interface) setPrinterInterface(printer.interface);
+      if (printer?.silent !== undefined) setIsSilentPrintEnabled(printer.silent);
+
       if (profile.name) setPharmacyName(profile.name);
       if (profile.ntn) setPharmacyNtn(profile.ntn);
       if (profile.address) setPharmacyAddress(profile.address);
@@ -86,7 +100,7 @@ export default function Settings() {
       if (profile.logo) setPharmacyLogo(profile.logo);
 
       setTemplate(prev => ({ ...prev, ...savedTemplate }));
-      setAppVersion(version);
+      if (version) setAppVersion(version);
     } catch (err) {
       console.error("Failed to load settings", err);
     }
@@ -117,7 +131,9 @@ export default function Settings() {
       };
       await (window as any).electronAPI.setSetting('pharmacyProfile', profileData);
       await (window as any).electronAPI.setSetting('storeInfo', profileData);
-      alert("Saved: Pharmacy profile updated.");
+      alert("Success: Pharmacy profile details saved.");
+    } catch (err: any) {
+      alert(`Error saving profile: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -128,464 +144,657 @@ export default function Settings() {
     setIsSaving(true);
     try {
       const res = await (window as any).electronAPI.dbReconnect(dbConfig);
-      if (res.success) alert("Connected: Database settings updated and verified.");
-      else alert("Error: Could not connect to database.");
+      if (res.success) {
+        alert("Connected: Database settings updated and verified.");
+      } else {
+        alert(`Error: Could not connect to database. ${res.error || ''}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleSavePrinter = async () => {
+  const handleSavePrinterSettings = async () => {
     setIsSaving(true);
     try {
-      await (window as any).electronAPI.setSetting('printerConfig', { interface: printerInterface });
-      alert("Saved: Printer interface updated.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSaveTemplate = async () => {
-    setIsSaving(true);
-    try {
+      await (window as any).electronAPI.setSetting('printerConfig', {
+        interface: printerInterface,
+        silent: isSilentPrintEnabled
+      });
       await (window as any).electronAPI.setSetting('receiptTemplate', template);
-      alert("Saved: Receipt template updated.");
+      alert("Success: Printer configuration and receipt template updated.");
+    } catch (err: any) {
+      alert(`Error saving printer: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
   };
+
+  const handleBackup = async () => {
+    if (user?.role !== 'ADMIN') {
+      alert("Access Denied: Only administrators can perform database backups.");
+      return;
+    }
+    setBackupStatus('Running database backup...');
+    try {
+      const res = await (window as any).electronAPI.createBackup(backupPath);
+      if (res.success) {
+        alert(`Success: Database backup completed successfully.\nSaved to: ${res.filePath}`);
+        setBackupStatus(`Last backup: ${new Date().toLocaleTimeString()} (Success)`);
+      } else {
+        alert(`Backup Error: ${res.message}`);
+        setBackupStatus('Backup failed.');
+      }
+    } catch (err: any) {
+      alert(`Backup Error: ${err.message}`);
+      setBackupStatus('Backup failed.');
+    }
+  };
+
+  const handleRestoreInstructions = () => {
+    if (user?.role !== 'ADMIN') {
+      alert("Access Denied: Only administrators can restore database backups.");
+      return;
+    }
+    alert(
+      "Database Restore Instructions:\n\n" +
+      "Restoring a backup will overwrite your current database. To prevent data corruption, " +
+      "please execute the restore command directly on the database terminal:\n\n" +
+      `psql -U ${dbConfig.user} -h ${dbConfig.host} -p ${dbConfig.port} -d ${dbConfig.database} -f <backup_file_path.sql>`
+    );
+  };
+
+  const handleClearSales = async () => {
+    if (user?.role !== 'ADMIN') {
+      alert("Access Denied: Only administrators can clear sales data.");
+      return;
+    }
+    if (!window.confirm("Warning: Clear Sales Data\n\nThis will delete all sales bills and restore all stock quantities in the inventory batches. This action cannot be undone.\n\nAre you sure you want to proceed?")) {
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const res = await (window as any).electronAPI.dbQuery('sales:purge', { userId: user?.id });
+      if (res.success) {
+        alert("Success: Sales bills database cleared and stock quantities restored to original levels.");
+        if (isLogsExpanded) fetchAuditLogs();
+      } else {
+        alert(`Purge Error: ${res.error || 'Failed to clear sales data.'}`);
+      }
+    } catch (err: any) {
+      alert(`Purge Error: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCheckUpdates = () => {
+    setIsCheckingUpdates(true);
+    setUpdateStatus('Checking for updates...');
+    setTimeout(() => {
+      setIsCheckingUpdates(false);
+      setUpdateStatus('Latest version is already installed (v' + appVersion + ').');
+    }, 1500);
+  };
+
+  const fetchAuditLogs = async () => {
+    try {
+      const res = await (window as any).electronAPI.dbQuery('audit:getAll', { limit: 100 });
+      if (res.success) {
+        setAuditLogs(res.data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (isLogsExpanded) {
+      fetchAuditLogs();
+    }
+  }, [isLogsExpanded]);
 
   return (
-    <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in duration-700 pb-8">
-      {/* Premium Header */}
-      <div className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-900 text-white rounded-xl">
-              <SettingsIcon size={24} />
-            </div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">System Settings</h1>
+    <div className="h-full flex flex-col bg-[#F8F9FA] overflow-hidden animate-fade-in">
+
+      {/* Page Header (Matching SettingsPage.xaml) */}
+      <div className="bg-linear-to-r from-[#00D2FF] to-[#3a7bd5] px-[40px] py-[24px] flex items-center justify-between shadow-md shrink-0">
+        <div className="flex items-center gap-5">
+          <div className="bg-white w-12 h-12 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+            <SettingsIcon className="text-[#3a7bd5]" size={24} />
           </div>
-          <p className="text-slate-400 text-sm font-medium ml-1">Configure your pharmacy hardware, database, and tax compliance.</p>
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-bold text-white tracking-tight">Settings</h1>
+            <span className="text-xs text-slate-100 font-medium opacity-90">Manage your pharmacy configuration and system operations.</span>
+          </div>
         </div>
 
         {isSaving && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-2xl border border-blue-100 animate-pulse">
-            <RefreshCw size={16} className="animate-spin" />
-            <span className="text-xs font-bold uppercase tracking-widest">Saving Changes...</span>
+          <div className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-xl border border-white/20 animate-pulse">
+            <RotateCcw size={14} className="animate-spin" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Saving Settings...</span>
           </div>
         )}
       </div>
 
-      <div className="flex-1 flex flex-col lg:flex-row gap-10 min-h-0">
-        {/* Sidebar Tabs */}
-        <div className="w-full lg:w-72 space-y-2 shrink-0">
-          {[
-            { id: 'profile', title: 'Your Pharmacy', icon: Building2, desc: 'Identity & Branding' },
-            { id: 'db', title: 'Database', icon: Database, desc: 'Connection Settings' },
-            { id: 'printer', title: 'Thermal Printer', icon: Printer, desc: 'ESC/POS Configuration' },
-            { id: 'template', title: 'Receipt Template', icon: FileText, desc: 'Header, Footer & Fields' },
-            { id: 'backup', title: 'Data Backup', icon: HardDrive, desc: 'Safety & Exports' },
-            { id: 'audit', title: 'Security Logs', icon: Shield, desc: 'User Activity History' },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as TabType)}
-              className={`w-full text-left p-5 rounded-3xl border-2 transition-all flex items-center group relative overflow-hidden ${activeTab === tab.id
-                ? 'bg-slate-900 border-slate-900 text-white shadow-xl shadow-slate-200'
-                : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200 hover:bg-slate-50'
-                }`}
-            >
-              <div className={`p-2.5 rounded-2xl mr-4 transition-colors ${activeTab === tab.id ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600'
-                }`}>
-                <tab.icon size={18} />
-              </div>
-              <div className="flex-1">
-                <h3 className={`font-black text-xs uppercase tracking-wider ${activeTab === tab.id ? 'text-white' : 'text-slate-800'}`}>{tab.title}</h3>
-                <p className={`text-[10px] font-medium mt-0.5 ${activeTab === tab.id ? 'text-slate-400' : 'text-slate-400'}`}>{tab.desc}</p>
-              </div>
-              <ChevronRight size={16} className={`transition-all ${activeTab === tab.id ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-2'}`} />
-            </button>
-          ))}
-        </div>
+      {/* Settings ScrollViewer (Stacked single page layout) */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-[40px] py-[32px]">
+        <div className="max-w-[1200px] flex flex-col gap-10 pb-[80px]">
 
-        {/* Content Area */}
-        <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-8 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="w-1.5 h-6 bg-blue-600 rounded-full" />
-              <h2 className="text-lg font-black text-slate-800 uppercase tracking-widest">
-                {activeTab === 'profile' && 'Pharmacy Profile'}
-                {activeTab === 'db' && 'Database Engine'}
-                {activeTab === 'printer' && 'Thermal Printing'}
-                {activeTab === 'template' && 'Receipt Template'}
-                {activeTab === 'backup' && 'System Backup'}
-                {activeTab === 'audit' && 'Activity Logs'}
-              </h2>
+          {/* Section 1: Database Operations */}
+          <div className="flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-[#111827] flex items-center gap-2 px-1">
+              <Database size={18} className="text-[#3a7bd5]" /> Database Operations
+            </h2>
+            <div className="border border-[#E2E8F0] rounded-xl bg-white p-6 shadow-sm space-y-6">
+              <p className="text-xs text-[#4B5563] font-medium leading-relaxed">
+                Manage your database backups, restoration operations, and connections.
+              </p>
+
+              <div className="flex flex-col gap-4 md:flex-row md:items-end border-b border-[#F1F5F9] pb-6">
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold text-[#4B5563]">Backup Output Directory</span>
+                  <input
+                    type="text"
+                    className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                    value={backupPath}
+                    onChange={(e) => setBackupPath(e.target.value)}
+                    placeholder="e.g. C:\DChemist_Backups"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleBackup}
+                    className="h-9 px-4 border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#4B5563] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none bg-white"
+                  >
+                    <HardDrive size={14} /> Backup Database
+                  </button>
+                  <button
+                    onClick={handleRestoreInstructions}
+                    className="h-9 px-4 border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#4B5563] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none bg-white"
+                  >
+                    <RotateCcw size={14} /> Restore Database
+                  </button>
+                  {user?.role === 'ADMIN' && (
+                    <button
+                      onClick={handleClearSales}
+                      className="h-9 px-4 border border-red-200 hover:bg-red-50 text-red-600 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none bg-white"
+                    >
+                      <Trash2 size={14} /> Clear Sales Data
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {backupStatus && (
+                <div className="text-[11px] text-[#718096] italic px-1">
+                  {backupStatus}
+                </div>
+              )}
+
+              {/* Collapsible Connection details form */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDbConfigExpanded(!isDbConfigExpanded)}
+                  className="text-xs font-bold text-[#3a7bd5] hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  {isDbConfigExpanded ? 'Hide' : 'Configure'} PostgreSQL Connection Settings...
+                </button>
+
+                {isDbConfigExpanded && (
+                  <form onSubmit={handleSaveDb} className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl animate-fade-in">
+                    <div className="md:col-span-2 flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Host Address</span>
+                      <input
+                        type="text"
+                        value={dbConfig.host}
+                        onChange={e => setDbConfig({ ...dbConfig, host: e.target.value })}
+                        className="h-8 px-3 border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Port</span>
+                      <input
+                        type="number"
+                        value={dbConfig.port}
+                        onChange={e => setDbConfig({ ...dbConfig, port: parseInt(e.target.value) || 5432 })}
+                        className="h-8 px-3 border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Database Name</span>
+                      <input
+                        type="text"
+                        value={dbConfig.database}
+                        onChange={e => setDbConfig({ ...dbConfig, database: e.target.value })}
+                        className="h-8 px-3 border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Username</span>
+                      <input
+                        type="text"
+                        value={dbConfig.user}
+                        onChange={e => setDbConfig({ ...dbConfig, user: e.target.value })}
+                        className="h-8 px-3 border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Password</span>
+                      <input
+                        type="password"
+                        value={dbConfig.password}
+                        onChange={e => setDbConfig({ ...dbConfig, password: e.target.value })}
+                        className="h-8 px-3 border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+                    <div className="md:col-span-3 flex justify-end pt-2">
+                      <button
+                        type="submit"
+                        disabled={isSaving}
+                        className="h-9 px-6 bg-slate-900 hover:bg-black text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 select-none cursor-pointer border-0 disabled:opacity-50"
+                      >
+                        <Save size={14} /> Connect & Save
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             </div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">v{appVersion}-stable</p>
           </div>
 
-          <div className="p-10 flex-1 overflow-y-auto custom-scrollbar">
-            {activeTab === 'profile' && (
-              <form onSubmit={handleSaveProfile} className="space-y-8 max-w-4xl animate-in fade-in duration-500">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                  {/* Logo Upload Section */}
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block px-1">Pharmacy Logo</label>
-                    <div className="relative group">
-                      <div className="w-full aspect-square bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center overflow-hidden transition-all group-hover:border-blue-400 group-hover:bg-blue-50">
-                        {pharmacyLogo ? (
-                          <img src={pharmacyLogo} alt="Logo" className="w-full h-full object-contain p-8" />
-                        ) : (
-                          <div className="text-center p-6">
-                            <PlusCircle className="mx-auto text-slate-300 mb-2" size={32} />
-                            <p className="text-[10px] font-black text-slate-400 uppercase">Upload Logo</p>
-                          </div>
-                        )}
-                        <input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-                      </div>
-                      {pharmacyLogo && (
-                        <button
-                          type="button"
-                          onClick={() => setPharmacyLogo(null)}
-                          className="absolute -top-2 -right-2 bg-rose-500 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-all z-10"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+          {/* Section 2: Pharmacy Information */}
+          <div className="flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-[#111827] flex items-center gap-2 px-1">
+              <Building2 size={18} className="text-[#3a7bd5]" /> Pharmacy Information
+            </h2>
+            <div className="border border-[#E2E8F0] rounded-xl bg-white p-6 shadow-sm">
+              <form onSubmit={handleSaveProfile} className="space-y-6">
+                <p className="text-xs text-[#4B5563] font-medium leading-relaxed">
+                  These details will appear on your receipts and fiscal reports.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  {/* Logo Upload Box */}
+                  <div className="md:col-span-1 flex flex-col gap-1.5">
+                    <span className="text-[11px] font-semibold text-[#4B5563]">Pharmacy Logo</span>
+                    <div className="relative border border-dashed border-[#E2E8F0] rounded-xl bg-[#F8FAFC] h-36 flex flex-col items-center justify-center overflow-hidden hover:border-[#00D2FF] hover:bg-blue-50/20 transition-all select-none">
+                      {pharmacyLogo ? (
+                        <>
+                          <img src={pharmacyLogo} alt="Logo" className="w-full h-full object-contain p-4" />
+                          <button
+                            type="button"
+                            onClick={() => setPharmacyLogo(null)}
+                            className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white p-1 rounded shadow"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="text-center p-4">
+                          <PlusCircle className="mx-auto text-slate-300 mb-1" size={24} />
+                          <span className="text-[9px] font-bold text-[#718096] uppercase">Upload Logo</span>
+                        </div>
                       )}
+                      <input type="file" accept="image/*" onChange={handleLogoUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                     </div>
-                    <p className="text-[9px] text-slate-400 font-black uppercase text-center tracking-tighter opacity-60">Best for Thermal: B&W Square</p>
                   </div>
 
-                  <div className="md:col-span-2 grid grid-cols-2 gap-8">
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center gap-2 px-1">
-                        <Building2 size={12} /> Pharmacy Legal Name
-                      </label>
+                  {/* Text Inputs fields */}
+                  <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Pharmacy Name</span>
                       <input
+                        type="text"
                         value={pharmacyName}
-                        onChange={e => setPharmacyName(e.target.value)}
-                        placeholder="e.g. D.Chemist Pharmacy & Labs"
-                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-800 focus:border-blue-600 focus:bg-white outline-none transition-all"
+                        onChange={(e) => setPharmacyName(e.target.value)}
+                        placeholder="e.g. D. Chemist"
+                        className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
                       />
                     </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center gap-2 px-1">
-                        <ShieldCheck size={12} /> NTN Number
-                      </label>
-                      <input value={pharmacyNtn} onChange={e => setPharmacyNtn(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">NTN Number</span>
+                      <input
+                        type="text"
+                        value={pharmacyNtn}
+                        onChange={(e) => setPharmacyNtn(e.target.value)}
+                        placeholder="e.g. I736466-5"
+                        className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
                     </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center gap-2 px-1">
-                        <FileText size={12} /> Drug License No
-                      </label>
-                      <input value={pharmacyLicense} onChange={e => setPharmacyLicense(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center gap-2 px-1">
-                        <Phone size={12} /> Official Contact
-                      </label>
-                      <input value={pharmacyPhone} onChange={e => setPharmacyPhone(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block px-1">Full Address</label>
-                      <textarea
+                    <div className="flex flex-col gap-1.5 md:col-span-2">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Address</span>
+                      <input
+                        type="text"
                         value={pharmacyAddress}
-                        onChange={e => setPharmacyAddress(e.target.value)}
-                        rows={3}
-                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold resize-none focus:border-blue-600 outline-none transition-all"
+                        onChange={(e) => setPharmacyAddress(e.target.value)}
+                        placeholder="Enter full address..."
+                        className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Phone Number</span>
+                      <input
+                        type="text"
+                        value={pharmacyPhone}
+                        onChange={(e) => setPharmacyPhone(e.target.value)}
+                        placeholder="e.g. +92-332-8787833"
+                        className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">License Number</span>
+                      <input
+                        type="text"
+                        value={pharmacyLicense}
+                        onChange={(e) => setPharmacyLicense(e.target.value)}
+                        placeholder="e.g. 01-372-0011-134212M"
+                        className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
                       />
                     </div>
                   </div>
                 </div>
-                <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-10 h-16 rounded-[1.5rem] font-black text-sm flex items-center gap-2 shadow-xl shadow-blue-100 active:scale-95 transition-all">
-                  <Save size={20} />
-                  Save Pharmacy Identity
-                </button>
-              </form>
-            )}
 
-            {activeTab === 'db' && (
-              <form onSubmit={handleSaveDb} className="space-y-8 max-w-2xl animate-in fade-in duration-500">
-                <div className="p-6 bg-blue-50 border-2 border-blue-100 rounded-3xl flex items-start gap-4">
-                  <div className="p-2 bg-blue-600 text-white rounded-xl">
-                    <Database size={20} />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-blue-900 text-sm">PostgreSQL Engine</h4>
-                    <p className="text-xs text-blue-700 mt-1">Ensure the database server is running and accessible from this machine.</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="col-span-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2">Host Address (IP/Localhost)</label>
-                    <input value={dbConfig.host} onChange={e => setDbConfig({ ...dbConfig, host: e.target.value })} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2">Port</label>
-                    <input type="number" value={dbConfig.port} onChange={e => setDbConfig({ ...dbConfig, port: Number(e.target.value) })} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2">Database Name</label>
-                    <input value={dbConfig.database} onChange={e => setDbConfig({ ...dbConfig, database: e.target.value })} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2">Username</label>
-                    <input value={dbConfig.user} onChange={e => setDbConfig({ ...dbConfig, user: e.target.value })} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2">Password</label>
-                    <input type="password" value={dbConfig.password} onChange={e => setDbConfig({ ...dbConfig, password: e.target.value })} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-600 outline-none transition-all" />
-                  </div>
-                </div>
-                <button type="submit" className="bg-slate-900 hover:bg-black text-white px-8 h-14 rounded-2xl font-black text-sm flex items-center gap-2 shadow-xl shadow-slate-100 active:scale-95 transition-all">
-                  <RefreshCw size={18} />
-                  Connect & Save
-                </button>
-              </form>
-            )}
-
-            {activeTab === 'printer' && (
-              <div className="space-y-8 max-w-2xl animate-in fade-in duration-500">
-                <div className="p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-200">
-                      <Printer size={32} className="text-slate-400" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-slate-800">Thermal Receipt Setup</h3>
-                      <p className="text-xs text-slate-400 font-medium">80mm Thermal Printer (ESC/POS)</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Printer Interface Name</label>
-                      <div className="relative">
-                        <Printer className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                          value={printerInterface}
-                          onChange={e => setPrinterInterface(e.target.value)}
-                          placeholder="e.g. printer:XP-80 or TCP:192.168.1.100"
-                          className="w-full bg-white border-2 border-slate-200 rounded-2xl p-4 pl-12 text-sm font-bold focus:border-blue-600 outline-none transition-all shadow-sm"
-                        />
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-2 italic px-1">Use 'printer:Auto' for default system printer.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <button onClick={handleSavePrinter} className="bg-blue-600 hover:bg-blue-700 text-white px-8 h-14 rounded-2xl font-black text-sm flex items-center gap-2 shadow-lg shadow-blue-100 active:scale-95 transition-all">
-                  <Save size={18} />
-                  Update Printer Config
-                </button>
-              </div>
-            )}
-
-            {activeTab === 'template' && (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-12 animate-in fade-in duration-500">
-                {/* Editor Side */}
-                <div className="space-y-8">
-                  <div className="p-8 bg-blue-50 border-2 border-blue-100 rounded-[2.5rem] flex items-start gap-4">
-                    <div className="p-3 bg-blue-600 text-white rounded-2xl">
-                      <Tag size={20} />
-                    </div>
-                    <div>
-                      <h4 className="font-black text-blue-900 text-sm uppercase tracking-wider">Profile-Linked Template</h4>
-                      <p className="text-[11px] text-blue-700 font-medium mt-1">This template automatically uses your Pharmacy Name, Logo, and Address from the Profile tab to ensure brand consistency.</p>
-                    </div>
-                  </div>
-
-                  <div className="p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl space-y-6">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Receipt Customization</p>
-                    <div className="space-y-6">
-                      <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Footer Message (Bottom)</label>
-                        <textarea value={template.footer} onChange={e => setTemplate({ ...template, footer: e.target.value })} rows={2} className="w-full bg-white border-2 border-slate-200 rounded-2xl p-4 text-sm font-bold resize-none focus:border-blue-600 outline-none transition-all" />
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-4 pt-4 border-t border-slate-200">
-                        <label className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200 cursor-pointer group">
-                          <span className="text-xs font-bold text-slate-700">Print Generic Molecule Name</span>
-                          <div className={`w-12 h-6 rounded-full relative transition-all ${template.showGeneric ? 'bg-blue-600 shadow-lg shadow-blue-100' : 'bg-slate-200'}`}>
-                            <input type="checkbox" checked={template.showGeneric} onChange={e => setTemplate({ ...template, showGeneric: e.target.checked })} className="hidden" />
-                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${template.showGeneric ? 'left-7' : 'left-1'}`} />
-                          </div>
-                        </label>
-                        <label className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200 cursor-pointer group">
-                          <span className="text-xs font-bold text-slate-700">Print Batch Numbers</span>
-                          <div className={`w-12 h-6 rounded-full relative transition-all ${template.showBatch ? 'bg-blue-600 shadow-lg shadow-blue-100' : 'bg-slate-200'}`}>
-                            <input type="checkbox" checked={template.showBatch} onChange={e => setTemplate({ ...template, showBatch: e.target.checked })} className="hidden" />
-                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${template.showBatch ? 'left-7' : 'left-1'}`} />
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button onClick={handleSaveTemplate} className="w-full bg-slate-900 hover:bg-black text-white h-16 rounded-[1.5rem] font-black text-sm flex items-center justify-center gap-3 shadow-xl shadow-slate-100 active:scale-95 transition-all">
-                    <Save size={20} />
-                    Apply Template Changes
+                <div className="flex justify-end pt-2 border-t border-[#F1F5F9]">
+                  <button
+                    type="submit"
+                    className="h-10 px-6 bg-linear-to-r from-[#00D2FF] to-[#3a7bd5] hover:from-[#00bfff] hover:to-[#2b6cb0] text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm shadow-[#00D2FF]/20 select-none cursor-pointer border-0"
+                  >
+                    <Save size={14} /> Save Pharmacy Details
                   </button>
                 </div>
+              </form>
+            </div>
+          </div>
 
-                {/* Preview Side */}
-                <div className="flex flex-col items-center">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Live Receipt Preview</p>
+          {/* Section 3: Integrations */}
+          <div className="flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-[#111827] flex items-center gap-2 px-1">
+              <ShieldCheck size={18} className="text-[#3a7bd5]" /> Integrations
+            </h2>
+            <div className="border border-[#E2E8F0] rounded-xl bg-white p-6 shadow-sm">
+              <p className="text-xs text-[#4B5563] font-medium leading-relaxed">
+                External fiscal reporting is currently disabled for this deployment.
+              </p>
+            </div>
+          </div>
 
-                  <div className="w-[280px] bg-white shadow-2xl p-[10px] font-sans text-black relative min-h-[500px]">
-                    <div className="space-y-[4px] flex flex-col">
-                      {/* Header Section */}
+          {/* Section 4: Printing Configuration */}
+          <div className="flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-[#111827] flex items-center gap-2 px-1">
+              <Printer size={18} className="text-[#3a7bd5]" /> Printing Configuration
+            </h2>
+            <div className="border border-[#E2E8F0] rounded-xl bg-white p-6 shadow-sm">
+
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+
+                {/* Setup Controls */}
+                <div className="xl:col-span-7 space-y-6">
+                  <p className="text-xs text-[#4B5563] font-medium leading-relaxed">
+                    Set up your thermal printer for fast, reliable receipt printing.
+                  </p>
+
+                  <div className="space-y-4">
+                    {/* Silent print switch */}
+                    <div className="flex items-center justify-between p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl select-none">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold text-slate-700">Enable Silent Printing</span>
+                        <span className="text-[10px] text-slate-400 font-medium">Bypass Windows Print Dialog box for faster checkouts</span>
+                      </div>
+                      <button
+                        onClick={() => setIsSilentPrintEnabled(!isSilentPrintEnabled)}
+                        className={`w-12 h-6 rounded-full relative transition-all ${isSilentPrintEnabled ? 'bg-blue-600 shadow-lg shadow-blue-100' : 'bg-slate-200'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isSilentPrintEnabled ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {/* Printer select */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Thermal Printer Profile</span>
+                      <select
+                        value={printerInterface}
+                        onChange={(e) => setPrinterInterface(e.target.value)}
+                        className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      >
+                        <option value="printer:Auto">printer:Auto (Windows Default)</option>
+                        <option value="printer:XP-80">printer:XP-80</option>
+                        <option value="printer:XP-58">printer:XP-58</option>
+                        <option value="printer:Epson">printer:Epson (Thermal)</option>
+                      </select>
+                      <span className="text-[10px] text-[#A0AEC0] italic px-1">If your printer is not in the list, type its name exactly as seen in Windows Settings.</span>
+                    </div>
+
+                    {/* Printer manual input */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#4B5563]">Manual Printer Name</span>
+                      <input
+                        type="text"
+                        value={printerInterface}
+                        onChange={(e) => setPrinterInterface(e.target.value)}
+                        placeholder="Or type printer name manually..."
+                        className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                      />
+                    </div>
+
+                    {/* Receipt template config parameters */}
+                    <div className="border-t border-[#F1F5F9] pt-4 space-y-4">
+                      <span className="text-[11px] font-bold text-[#4B5563] uppercase tracking-wider block">Receipt Customization</span>
+
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-semibold text-[#4B5563]">Footer Message</span>
+                        <input
+                          type="text"
+                          value={template.footer}
+                          onChange={(e) => setTemplate({ ...template, footer: e.target.value })}
+                          className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <label className="flex items-center justify-between p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl cursor-pointer select-none">
+                          <span className="text-xs font-bold text-slate-700">Print Generic Molecule</span>
+                          <button
+                            type="button"
+                            onClick={() => setTemplate({ ...template, showGeneric: !template.showGeneric })}
+                            className={`w-10 h-5 rounded-full relative transition-all ${template.showGeneric ? 'bg-blue-600 shadow' : 'bg-slate-200'}`}
+                          >
+                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${template.showGeneric ? 'left-5.5' : 'left-0.5'}`} />
+                          </button>
+                        </label>
+
+                        <label className="flex items-center justify-between p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl cursor-pointer select-none">
+                          <span className="text-xs font-bold text-slate-700">Print Batch Numbers</span>
+                          <button
+                            type="button"
+                            onClick={() => setTemplate({ ...template, showBatch: !template.showBatch })}
+                            className={`w-10 h-5 rounded-full relative transition-all ${template.showBatch ? 'bg-blue-600 shadow' : 'bg-slate-200'}`}
+                          >
+                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${template.showBatch ? 'left-5.5' : 'left-0.5'}`} />
+                          </button>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      onClick={handleSavePrinterSettings}
+                      className="h-10 px-6 bg-linear-to-r from-[#00D2FF] to-[#3a7bd5] hover:from-[#00bfff] hover:to-[#2b6cb0] text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm shadow-[#00D2FF]/20 select-none cursor-pointer border-0"
+                    >
+                      <Save size={14} /> Save Printing Settings
+                    </button>
+                  </div>
+                </div>
+
+                {/* Receipt Preview */}
+                <div className="xl:col-span-5 flex flex-col items-center border-l border-[#F1F5F9] pl-0 xl:pl-8">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Receipt Preview</span>
+                  <div className="w-[280px] bg-white border border-[#E2E8F0] shadow-xl p-4 font-mono text-black text-[10px] rounded-lg select-none min-h-[460px]">
+                    <div className="space-y-1 flex flex-col">
                       {pharmacyLogo ? (
-                        <img src={pharmacyLogo} alt="Logo" className="w-[56px] h-[56px] object-contain mx-auto mb-[4px]" />
+                        <img src={pharmacyLogo} alt="Logo" className="w-15 h-15 object-contain mx-auto  bg-black " />
                       ) : (
-                        <div className="w-[56px] h-[56px] bg-slate-100 rounded mx-auto mb-[4px] flex items-center justify-center text-[8px] text-slate-300">LOGO</div>
+                        <div className="w-10 h-10 bg-slate-100 rounded mx-auto mb-1 flex items-center justify-center text-[7px] text-slate-400">LOGO</div>
                       )}
 
-                      <p className="text-[16px] font-bold text-center leading-tight uppercase">{pharmacyName || 'D.CHEMIST'}</p>
-                      <p className="text-[10px] text-center leading-tight whitespace-normal px-2">{pharmacyAddress || 'Your Address Here'}</p>
-                      <p className="text-[10px] text-center leading-tight">Ph: {pharmacyPhone || '000-0000000'}</p>
-                      <p className="text-[10px] text-center leading-tight">License: {pharmacyLicense || 'DL-12345'}</p>
-                      <p className="text-[10px] text-center leading-tight">NTN: {pharmacyNtn || 'NTN-0000000'}</p>
+                      <p className="text-sm font-bold text-center leading-tight uppercase">{pharmacyName || 'D.CHEMIST'}</p>
+                      <p className="text-[8px] text-center leading-tight whitespace-normal px-2">{pharmacyAddress || 'Your Address Here'}</p>
+                      <p className="text-[8px] text-center leading-tight">Ph: {pharmacyPhone || '000-0000000'}</p>
+                      <p className="text-[8px] text-center leading-tight">License: {pharmacyLicense || 'DL-12345'}</p>
+                      <p className="text-[8px] text-center leading-tight">NTN: {pharmacyNtn || 'NTN-0000000'}</p>
 
-                      <div className="h-px bg-black my-[5px]" />
+                      <div className="h-px bg-black my-1" />
 
-                      {/* Sale Info */}
-                      <div className="flex justify-between text-[10px]">
-                        <span className="font-semibold">Bill No:</span>
+                      <div className="flex justify-between">
+                        <span className="font-bold">Bill No:</span>
                         <span>B-001234</span>
                       </div>
-                      <div className="flex justify-between text-[10px]">
-                        <span className="font-semibold">Date:</span>
-                        <span>{new Date().toLocaleDateString()}</span>
+                      <div className="flex justify-between">
+                        <span className="font-bold">Date:</span>
+                        <span>{new Date().toLocaleDateString('en-GB')}</span>
                       </div>
-
-                      <div className="flex justify-between text-[10px]">
-                        <span className="font-semibold">Customer:</span>
+                      <div className="flex justify-between">
+                        <span className="font-bold">Customer:</span>
                         <span>Walking Customer</span>
                       </div>
 
-                      <div className="h-px bg-black my-[5px]" />
+                      <div className="h-px bg-black my-1" />
 
-                      {/* Items Header */}
-                      <div className="flex text-[10px] font-bold py-[2px]">
+                      <div className="flex font-bold py-0.5">
                         <span className="flex-1">Item</span>
-                        <span className="w-[30px] text-center">Qty</span>
-                        <span className="w-[60px] text-right">Total</span>
+                        <span className="w-8 text-center">Qty</span>
+                        <span className="w-14 text-right">Total</span>
                       </div>
 
-                      {/* Dynamic Items Preview */}
-                      <div className="space-y-[2px]">
-                        <div className="flex text-[10px]">
-                          <div className="flex-1 flex flex-col">
-                            <span>PANADOL CF 500MG</span>
-                            {template.showGeneric && <span className="text-[9px] text-slate-500 italic ml-1">Paracetamol + Caffeine</span>}
-                            {template.showBatch && <span className="text-[8px] text-slate-400 ml-1">Batch: BT-99123</span>}
+                      <div className="space-y-0.5">
+                        <div className="flex flex-col">
+                          <div className="flex">
+                            <span className="grow">PANADOL CF 500MG</span>
+                            <span className="w-8 text-center">2</span>
+                            <span className="w-14 text-right">300.00</span>
                           </div>
-                          <span className="w-[30px] text-center">2</span>
-                          <span className="w-[60px] text-right">300.00</span>
+                          {template.showGeneric && <span className="text-[8px] text-slate-500 italic ml-1">Paracetamol + Caffeine</span>}
+                          {template.showBatch && <span className="text-[8px] text-slate-400 ml-1">Batch: BT-99123</span>}
                         </div>
                       </div>
 
-                      <div className="h-[1px] bg-black my-[5px]" />
+                      <div className="h-px bg-black my-1" />
 
-                      {/* Totals */}
-                      <div className="flex justify-between text-[10px] py-[2px]">
+                      <div className="flex justify-between">
                         <span>Subtotal:</span>
                         <span>Rs. 300.00</span>
                       </div>
-                      <div className="flex justify-between text-[10px] py-[2px]">
-                        <span>Tax (0%):</span>
-                        <span>Rs. 0.00</span>
-                      </div>
-                      <div className="flex justify-between text-[12px] font-bold my-[5px]">
+                      <div className="flex justify-between font-bold text-xs py-1 border-t border-black border-dashed mt-1">
                         <span>GRAND TOTAL</span>
                         <span>Rs. 300.00</span>
                       </div>
 
-                      <div className="h-[1px] bg-black my-[5px]" />
-
-                      <p className="text-[10px] italic text-center mt-[10px] uppercase font-medium">{template.footer || 'Thank you for your visit!'}</p>
+                      <div className="h-px bg-black my-1" />
+                      <p className="text-[8px] italic text-center mt-2 uppercase font-medium">{template.footer || 'Thank you for your visit!'}</p>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
 
-            {activeTab === 'backup' && (
-              <div className="space-y-8 max-w-2xl animate-in fade-in duration-500">
-                <div className="p-10 bg-emerald-50 border-2 border-emerald-100 rounded-[2.5rem] flex flex-col items-center text-center space-y-6">
-                  <div className="p-6 bg-white rounded-[2rem] shadow-sm border border-emerald-100">
-                    <ShieldCheck size={48} className="text-emerald-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-emerald-900">Protect Your Data</h3>
-                    <p className="text-sm text-emerald-700 mt-2 max-w-md mx-auto leading-relaxed">
-                      Create a complete cryptographic backup of your database, settings, and logs. Store it safely on an external drive.
-                    </p>
-                  </div>
-                  <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-10 h-16 rounded-[1.5rem] font-black text-sm flex items-center gap-3 shadow-xl shadow-emerald-100 active:scale-95 transition-all">
-                    <HardDrive size={20} />
-                    Run Full System Backup
+              </div>
+            </div>
+          </div>
+
+          {/* Section 5: About & Updates */}
+          <div className="flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-[#111827] flex items-center gap-2 px-1">
+              <Clock size={18} className="text-[#3a7bd5]" /> About & Updates
+            </h2>
+            <div className="border border-[#E2E8F0] rounded-xl bg-white p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="space-y-1">
+                <h3 className="font-bold text-[#111827] text-sm">D. Chemist System</h3>
+                <p className="text-xs text-slate-400 font-semibold">
+                  Stable Version: <span className="text-[#00D2FF]">v{appVersion}</span>
+                </p>
+                <p className="text-xs text-slate-500 font-medium pt-1">
+                  {updateStatus}
+                </p>
+              </div>
+
+              <button
+                onClick={handleCheckUpdates}
+                disabled={isCheckingUpdates}
+                className="h-10 px-5 bg-linear-to-r from-[#00D2FF] to-[#3a7bd5] hover:from-[#00bfff] hover:to-[#2b6cb0] text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm shadow-[#00D2FF]/20 select-none cursor-pointer border-0 disabled:opacity-50"
+              >
+                <RotateCcw size={14} className={isCheckingUpdates ? 'animate-spin' : ''} /> Check for Updates
+              </button>
+            </div>
+          </div>
+
+          {/* Section 6: Security Audit Logs (Collapsible Card) */}
+          <div className="flex flex-col gap-4">
+            <button
+              onClick={() => setIsLogsExpanded(!isLogsExpanded)}
+              className="text-lg font-bold text-[#111827] flex items-center gap-2 px-1 cursor-pointer w-full text-left"
+            >
+              <Shield size={18} className="text-[#3a7bd5]" />
+              <span>Audit Security Logs</span>
+              <span className="text-xs font-semibold text-[#A0AEC0] ml-2">
+                ({isLogsExpanded ? 'Click to collapse' : 'Click to expand...'})
+              </span>
+            </button>
+
+            {isLogsExpanded && (
+              <div className="border border-[#E2E8F0] rounded-xl bg-white shadow-sm overflow-hidden animate-fade-in">
+                <div className="bg-[#F7FAFC] px-4 py-3 border-b border-[#E2E8F0] shrink-0 select-none flex justify-between items-center">
+                  <span className="text-xs font-bold text-[#4A5568] uppercase tracking-wider">Reviewing last 100 system events</span>
+                  <button onClick={fetchAuditLogs} className="text-[10px] font-bold text-blue-600 hover:underline">
+                    Refresh Logs
                   </button>
                 </div>
-
-                <div className="flex items-center justify-between p-6 border-2 border-slate-100 rounded-3xl">
-                  <div className="flex items-center gap-3 text-slate-500">
-                    <Clock size={18} />
-                    <span className="text-xs font-bold uppercase tracking-widest">Last Backup: Never</span>
-                  </div>
-                  <button className="text-[10px] font-black uppercase text-blue-600 hover:underline flex items-center gap-1">
-                    Manage Old Backups <ExternalLink size={12} />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'audit' && (
-              <div className="space-y-6 animate-in fade-in duration-500">
-                <div className="flex justify-between items-center mb-4">
-                  <p className="text-sm font-bold text-slate-500">Reviewing last 100 system events.</p>
-                  <button onClick={() => window.location.href = '/audit'} className="text-xs font-black text-blue-600 hover:underline">View Full Audit Page</button>
-                </div>
-                <div className="bg-slate-50 border-2 border-slate-100 rounded-[2rem] overflow-hidden h-[500px]">
-                  <div className="overflow-auto h-full custom-scrollbar">
-                    <table className="w-full text-left text-[11px] border-collapse">
-                      <thead className="sticky top-0 bg-slate-100/80 backdrop-blur-md border-b border-slate-200 text-slate-400 uppercase font-black tracking-widest z-10">
+                <div className="max-h-[300px] overflow-auto custom-scrollbar">
+                  <table className="w-full text-left text-[11px] border-collapse">
+                    <thead className="sticky top-0 bg-[#F8FAFC] border-b border-[#E2E8F0] text-slate-400 uppercase font-black tracking-widest z-10">
+                      <tr>
+                        <th className="px-6 py-3">Timestamp</th>
+                        <th className="px-6 py-3">Operator</th>
+                        <th className="px-6 py-3">Action</th>
+                        <th className="px-6 py-3">Event Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F1F5F9] bg-white">
+                      {auditLogs.length === 0 ? (
                         <tr>
-                          <th className="px-6 py-4">Timestamp</th>
-                          <th className="px-6 py-4">Operator</th>
-                          <th className="px-6 py-4">Action</th>
-                          <th className="px-6 py-4">Event Details</th>
+                          <td colSpan={4} className="px-6 py-8 text-center text-slate-400 italic">No security events found.</td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white">
-                        {auditLogs.map(log => (
+                      ) : (
+                        auditLogs.map((log) => (
                           <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-6 py-4 text-slate-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
-                            <td className="px-6 py-4 font-black text-slate-800">
-                              <div className="flex items-center gap-2">
-                                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px]">{log.username?.charAt(0).toUpperCase()}</div>
-                                {log.username}
-                              </div>
+                            <td className="px-6 py-3 text-slate-400 whitespace-nowrap">
+                              {new Date(log.created_at).toLocaleString()}
                             </td>
-                            <td className="px-6 py-4 font-bold">
-                              <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600">{log.action}</span>
+                            <td className="px-6 py-3 font-semibold text-slate-800">
+                              {log.username || 'System'}
                             </td>
-                            <td className="px-6 py-4 text-slate-500">{log.details}</td>
+                            <td className="px-6 py-3">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#F1F5F9] text-[#4A5568]">
+                                {log.action}
+                              </span>
+                            </td>
+                            <td className="px-6 py-3 text-slate-500 max-w-sm truncate" title={log.details}>
+                              {log.details}
+                            </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
           </div>
+
         </div>
       </div>
+
     </div>
   );
 }

@@ -13,6 +13,7 @@ const MedicineRepository = {
         m.category_id AS "categoryId", m.manufacturer_id AS "manufacturerId",
         m.dosage_form AS "dosageForm", m.strength, m.barcode, 
         m.gst_percent AS "gstPercent", m.created_at AS "createdAt",
+        m.units_per_pack AS "unitsPerPack", m.packets_per_box AS "packetsPerBox", m.default_entry_mode AS "defaultEntryMode",
         c.name  AS "categoryName",
         mf.name AS "manufacturerName",
         COALESCE(SUM(b.remaining_units), 0)::int AS "stockQty",
@@ -22,7 +23,7 @@ const MedicineRepository = {
       LEFT JOIN categories    c  ON c.id  = m.category_id
       LEFT JOIN manufacturers mf ON mf.id = m.manufacturer_id
       LEFT JOIN inventory_batches b ON b.medicine_id = m.id
-      GROUP BY m.id, c.name, mf.name
+      GROUP BY m.id, c.name, mf.name, m.units_per_pack, m.packets_per_box, m.default_entry_mode
       ORDER BY m.name
     `);
   },
@@ -33,6 +34,7 @@ const MedicineRepository = {
         m.category_id AS "categoryId", m.manufacturer_id AS "manufacturerId",
         m.dosage_form AS "dosageForm", m.strength, m.barcode, 
         m.gst_percent AS "gstPercent", m.created_at AS "createdAt",
+        m.units_per_pack AS "unitsPerPack", m.packets_per_box AS "packetsPerBox", m.default_entry_mode AS "defaultEntryMode",
         c.name AS "categoryName", mf.name AS "manufacturerName",
         COALESCE(SUM(b.remaining_units), 0)::int AS "stockQty",
         MAX(b.selling_price) AS "sellingPrice",
@@ -42,7 +44,7 @@ const MedicineRepository = {
       LEFT JOIN manufacturers mf ON mf.id = m.manufacturer_id
       LEFT JOIN inventory_batches b ON b.medicine_id = m.id
       WHERE m.id = $1
-      GROUP BY m.id, c.name, mf.name
+      GROUP BY m.id, c.name, mf.name, m.units_per_pack, m.packets_per_box, m.default_entry_mode
     `, [id]);
   },
 
@@ -52,6 +54,7 @@ const MedicineRepository = {
         m.category_id AS "categoryId", m.manufacturer_id AS "manufacturerId",
         m.dosage_form AS "dosageForm", m.strength, m.barcode, 
         m.gst_percent AS "gstPercent", m.created_at AS "createdAt",
+        m.units_per_pack AS "unitsPerPack", m.packets_per_box AS "packetsPerBox", m.default_entry_mode AS "defaultEntryMode",
         c.name AS "categoryName",
         COALESCE(SUM(b.remaining_units), 0)::int AS "stockQty",
         MAX(b.selling_price) AS "sellingPrice",
@@ -60,7 +63,7 @@ const MedicineRepository = {
       LEFT JOIN categories c ON c.id = m.category_id
       LEFT JOIN inventory_batches b ON b.medicine_id = m.id
       WHERE m.barcode = $1
-      GROUP BY m.id, c.name
+      GROUP BY m.id, c.name, m.units_per_pack, m.packets_per_box, m.default_entry_mode
     `, [barcode]);
   },
 
@@ -69,14 +72,17 @@ const MedicineRepository = {
       SELECT m.id, m.name, m.generic_name AS "genericName", 
         m.barcode, m.dosage_form AS "dosageForm", m.strength,
         m.gst_percent AS "gstPercent", c.name AS "categoryName",
+        m.units_per_pack AS "unitsPerPack", m.packets_per_box AS "packetsPerBox", m.default_entry_mode AS "defaultEntryMode",
+        mf.name AS "manufacturerName",
         COALESCE(SUM(b.remaining_units), 0)::int AS "stockQty",
         MAX(b.selling_price) AS "sellingPrice",
         MIN(b.expiry_date)   AS "expiryDate"
       FROM medicines m
       LEFT JOIN categories c ON c.id = m.category_id
+      LEFT JOIN manufacturers mf ON mf.id = m.manufacturer_id
       LEFT JOIN inventory_batches b ON b.medicine_id = m.id
       WHERE m.name ILIKE $1 OR m.generic_name ILIKE $1 OR m.barcode ILIKE $1
-      GROUP BY m.id, c.name
+      GROUP BY m.id, c.name, m.units_per_pack, m.packets_per_box, m.default_entry_mode, mf.name
       ORDER BY m.name
       LIMIT 50
     `, [`%${term}%`]);

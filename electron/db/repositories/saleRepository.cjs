@@ -35,9 +35,10 @@ const SaleRepository = {
     `, [id]);
     if (!sale) return null;
     sale.items = await query(`
-      SELECT si.*, m.name AS medicine_name
+      SELECT si.*, m.name AS medicine_name, COALESCE(ib.unit_cost, 0) AS purchase_price
       FROM sale_items si
       LEFT JOIN medicines m ON m.id = si.medicine_id
+      LEFT JOIN inventory_batches ib ON ib.id = si.batch_id
       WHERE si.sale_id = $1
     `, [id]);
     return sale;

@@ -1,18 +1,12 @@
 import { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Filter, 
-  Trash2, 
-  RotateCcw, 
-  Printer, 
-  FileText, 
-  ChevronRight, 
-  Calendar,
-  User as UserIcon,
-  Receipt,
-  X,
+import {
+  FileText,
+  RotateCcw,
+  Printer,
+  Trash2,
+  CheckCircle2,
   AlertCircle,
-  CheckCircle2
+  X
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
@@ -37,35 +31,45 @@ interface SaleItem {
 
 interface SaleDetails extends SaleSummary {
   items: SaleItem[];
+  total_amount: string | number;
+  tax_amount: string | number;
+  discount_amount: string | number;
 }
 
 export default function Financial() {
   const { user } = useAuth();
   const [sales, setSales] = useState<SaleSummary[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
+  const [searchInvoiceTerm, setSearchInvoiceTerm] = useState('');
+  const [searchDate, setSearchDate] = useState('');
+  const [searchCustomerTerm, setSearchCustomerTerm] = useState('');
   const [selectedSale, setSelectedSale] = useState<SaleDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [returnQtys, setReturnQtys] = useState<Record<number, number>>({});
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [statusMessage, setStatusMessage] = useState('Loading bills...');
 
   useEffect(() => {
     loadSales();
-  }, [searchTerm, dateFilter]);
+  }, [searchDate]);
 
   const loadSales = async () => {
     setIsLoading(true);
+    setStatusMessage('Loading bills...');
     try {
       const result = await (window as any).electronAPI.dbQuery('sales:getAll', {
-        startDate: dateFilter ? `${dateFilter} 00:00:00` : undefined,
-        endDate: dateFilter ? `${dateFilter} 23:59:59` : undefined,
+        startDate: searchDate ? `${searchDate} 00:00:00` : undefined,
+        endDate: searchDate ? `${searchDate} 23:59:59` : undefined,
       });
       if (result.success) {
         setSales(result.data);
+        setStatusMessage(result.data.length === 0 ? 'No bills found matching your search.' : `${result.data.length} bills found.`);
+      } else {
+        setStatusMessage('Error loading bills.');
       }
     } catch (err) {
       console.error(err);
+      setStatusMessage('Error loading bills.');
     } finally {
       setIsLoading(false);
     }
@@ -106,8 +110,8 @@ export default function Financial() {
           unitPrice: i.unit_price,
           subtotal: i.subtotal
         })),
-        totalAmount: selectedSale.grand_total, // Assuming grand_total is base for reprint
-        discountAmount: 0, // Placeholder as we don't have discount in details view yet
+        totalAmount: selectedSale.grand_total,
+        discountAmount: 0,
         taxAmount: 0,
         grandTotal: selectedSale.grand_total
       });
@@ -139,8 +143,9 @@ export default function Financial() {
   };
 
   const handleReturn = async (item: SaleItem) => {
-    const qty = returnQtys[item.id];
-    if (qty <= 0 || qty > (item.quantity - item.returned_qty)) {
+    const qty = returnQtys[item.id] || 0;
+    const remainingQty = item.quantity - item.returned_qty;
+    if (qty <= 0 || qty > remainingQty) {
       alert('Invalid return quantity');
       return;
     }
@@ -170,8 +175,43 @@ export default function Financial() {
     }
   };
 
+  const handleReturnCompleteBill = async () => {
+    if (!selectedSale) return;
+    const remainingItems = selectedSale.items.filter(item => item.quantity > item.returned_qty);
+    if (remainingItems.length === 0) {
+      alert('No items remaining to return in this bill.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to return ALL remaining items in Bill # ${selectedSale.bill_no}?\n\nThis will restore all stock for every item in this bill that hasn't already been returned.`)) return;
+
+    try {
+      const returnedItems = remainingItems.map(item => ({
+        saleItemId: item.id,
+        returnQty: item.quantity - item.returned_qty,
+        batchId: (item as any).batch_id
+      }));
+
+      const result = await (window as any).electronAPI.dbQuery('sales:processReturn', {
+        saleId: selectedSale.id,
+        returnedItems,
+        userId: user?.id
+      });
+
+      if (result.success) {
+        setMessage({ type: 'success', text: 'Complete bill return processed successfully.' });
+        loadSaleDetails(selectedSale.id);
+        loadSales();
+      } else {
+        setMessage({ type: 'error', text: result.error || 'Failed to process return.' });
+      }
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    }
+  };
+
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('en-US', {
+    return new Date(dateStr).toLocaleDateString('en-GB', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
@@ -180,255 +220,294 @@ export default function Financial() {
     });
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <FileText className="text-blue-600" />
-            Financial Management
-          </h1>
-          <p className="text-slate-500 text-sm">Review sales history, process returns, and manage invoices.</p>
-        </div>
+  // Perform client-side filtering matching C# ViewModel SearchInvoiceTerm and SearchCustomerTerm
+  const filteredSales = sales.filter(sale => {
+    const matchesInvoice = !searchInvoiceTerm.trim() ||
+      sale.bill_no.toLowerCase().includes(searchInvoiceTerm.toLowerCase().trim());
+    const matchesCustomer = !searchCustomerTerm.trim() ||
+      (sale.customer_name || 'Walking Customer').toLowerCase().includes(searchCustomerTerm.toLowerCase().trim());
+    return matchesInvoice && matchesCustomer;
+  });
 
-        <div className="flex items-center gap-3">
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={18} />
-            <input
-              type="text"
-              placeholder="Search Bill No / Customer..."
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all w-64 text-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+  return (
+    <div className="h-full flex flex-col bg-[#F8F9FA] overflow-hidden animate-fade-in">
+
+      {/* Header with LinearGradientBrush replication */}
+      <div className="bg-linear-to-r from-[#00D2FF] to-[#3a7bd5] px-[40px] py-[24px] flex items-center justify-between shadow-md shrink-0">
+        <div className="flex items-center gap-5">
+          <div className="bg-white w-12 h-12 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+            <FileText className="text-[#3a7bd5]" size={24} />
           </div>
-          <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="date"
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-            />
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-bold text-white tracking-tight">Bills & Financials</h1>
+            <span className="text-xs text-slate-100 font-medium opacity-90">{statusMessage}</span>
           </div>
         </div>
       </div>
 
-      {message && (
-        <div className={`p-4 rounded-xl flex items-center gap-3 border animate-in zoom-in-95 duration-300 ${
-          message.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'
-        }`}>
-          {message.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
-          <span className="text-sm font-medium">{message.text}</span>
-          <button onClick={() => setMessage(null)} className="ml-auto hover:bg-black/5 p-1 rounded-lg transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-      )}
+      {/* Main Body Area */}
+      <div className="flex-1 flex flex-col px-[40px] py-[24px] gap-4 overflow-hidden min-h-0">
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Sales List */}
-        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col max-h-[calc(100vh-250px)]">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-            <h2 className="font-bold text-slate-700 flex items-center gap-2">
-              <Receipt size={18} className="text-slate-400" />
-              Recent Invoices
-            </h2>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{sales.length} Results</span>
+        {message && (
+          <div className={`p-3.5 rounded-lg flex items-center gap-3 border animate-fade-in shrink-0 ${message.type === 'success' ? 'bg-[#ECFDF5] border-[#D1FAE5] text-[#059669]' : 'bg-[#FEE2E2] border-[#FEE2E2] text-[#DC2626]'
+            }`}>
+            {message.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+            <span className="text-xs font-semibold">{message.text}</span>
+            <button onClick={() => setMessage(null)} className="ml-auto hover:bg-black/5 p-1 rounded transition-colors cursor-pointer">
+              <X size={14} />
+            </button>
           </div>
+        )}
 
-          <div className="overflow-auto custom-scrollbar flex-1">
-            <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 bg-white z-10">
-                <tr className="border-b border-slate-100">
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bill No</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right">Amount</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {isLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td colSpan={5} className="px-4 py-4"><div className="h-4 bg-slate-100 rounded w-full"></div></td>
-                    </tr>
-                  ))
-                ) : sales.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center text-slate-400 italic text-sm">No invoices found.</td>
-                  </tr>
-                ) : (
-                  sales.map((sale) => (
-                    <tr 
-                      key={sale.id} 
-                      onClick={() => loadSaleDetails(sale.id)}
-                      className={`group hover:bg-blue-50/50 cursor-pointer transition-colors ${selectedSale?.id === sale.id ? 'bg-blue-50/80' : ''}`}
-                    >
-                      <td className="px-4 py-4">
-                        <div className="font-mono font-bold text-slate-700">{sale.bill_no}</div>
-                        <div className="text-[10px] text-slate-400">{formatDate(sale.sale_date)}</div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="text-sm font-medium text-slate-600">{sale.customer_name || 'Walking Customer'}</div>
-                        <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                          <UserIcon size={10} /> {sale.cashier_name}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <div className="text-sm font-bold text-slate-700">Rs. {Number(sale.grand_total).toLocaleString()}</div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          sale.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
-                          sale.status === 'Voided' ? 'bg-rose-100 text-rose-700' :
-                          'bg-amber-100 text-amber-700'
-                        }`}>
-                          {sale.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <ChevronRight className={`text-slate-300 group-hover:text-blue-400 transition-all ${selectedSale?.id === sale.id ? 'translate-x-1 text-blue-500' : ''}`} size={18} />
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
 
-        {/* Sale Details / Return Panel */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          {selectedSale ? (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-right-4 duration-300">
-              <div className="p-4 bg-slate-800 text-white flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-sm">Invoice Details</h3>
-                  <p className="text-[10px] text-slate-400">Bill No: {selectedSale.bill_no}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={handlePrint}
-                    className="p-2 hover:bg-white/10 rounded-lg transition-colors text-slate-300 hover:text-white" 
-                    title="Print Receipt"
+          {/* Left Side Card: Invoices List */}
+          <div className="w-[450px] bg-white border border-[#E2E8F0] rounded-xl flex flex-col overflow-hidden shadow-sm shrink-0">
+
+            {/* Search Box Grid */}
+            <div className="p-4 border-b border-[#E2E8F0] grid grid-cols-2 gap-x-4 gap-y-3 relative shrink-0 bg-white">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-semibold text-[#4B5563]">Bill Number</span>
+                <input
+                  type="text"
+                  placeholder="BILL-..."
+                  className="h-8 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                  value={searchInvoiceTerm}
+                  onChange={(e) => setSearchInvoiceTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-semibold text-[#4B5563]">Date</span>
+                <input
+                  type="date"
+                  className="h-8 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827] cursor-pointer"
+                  value={searchDate}
+                  onChange={(e) => setSearchDate(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5 col-span-2">
+                <span className="text-[11px] font-semibold text-[#4B5563]">Customer Name</span>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Search customer..."
+                    className="flex-1 h-8 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                    value={searchCustomerTerm}
+                    onChange={(e) => setSearchCustomerTerm(e.target.value)}
+                  />
+                  <button
+                    onClick={loadSales}
+                    className="h-8 px-4 border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#4B5563] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none"
                   >
-                    <Printer size={16} />
-                  </button>
-                  <button 
-                    disabled={selectedSale.status === 'Voided'}
-                    onClick={handleVoid}
-                    className="p-2 hover:bg-rose-500/20 rounded-lg transition-colors text-rose-400 hover:text-rose-300 disabled:opacity-30 disabled:cursor-not-allowed" 
-                    title="Void Bill"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                  <button onClick={() => setSelectedSale(null)} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-slate-300">
-                    <X size={16} />
+                    <RotateCcw size={12} className={isLoading ? "animate-spin" : ""} />
+                    Refresh
                   </button>
                 </div>
               </div>
+            </div>
 
-              {isDetailsLoading ? (
-                <div className="p-12 flex flex-col items-center justify-center text-slate-400 gap-3">
-                  <RotateCcw className="animate-spin" />
-                  <span className="text-sm">Loading details...</span>
+            {/* Title Bar "Sales Bills" */}
+            <div className="bg-[#F7FAFC] px-4 py-3 border-b border-[#E2E8F0] shrink-0 select-none">
+              <span className="text-sm font-bold text-[#4A5568]">Sales Bills</span>
+            </div>
+
+            {/* Bills ListView Items */}
+            <div className="flex-1 overflow-auto custom-scrollbar bg-white divide-y divide-[#F1F5F9]">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-16 text-slate-400 text-sm select-none">
+                  <RotateCcw className="animate-spin mr-2" size={16} /> Loading bills...
+                </div>
+              ) : filteredSales.length === 0 ? (
+                <div className="flex items-center justify-center py-16 text-slate-400 text-sm select-none">
+                  No bills found.
                 </div>
               ) : (
-                <div className="p-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4 text-[11px]">
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <p className="text-slate-400 font-bold uppercase tracking-widest mb-1">Customer</p>
-                      <p className="text-slate-700 font-bold">{selectedSale.customer_name || 'Walking Customer'}</p>
+                filteredSales.map((sale) => (
+                  <div
+                    key={sale.id}
+                    onClick={() => loadSaleDetails(sale.id)}
+                    className={`p-4 flex items-center justify-between cursor-pointer border-b border-[#F1F5F9] transition-colors ${selectedSale?.id === sale.id ? 'bg-[#00D2FF]/5 border-l-4 border-l-[#00D2FF] pl-3' : 'hover:bg-slate-50/50'
+                      }`}
+                  >
+                    <div className="flex-1 min-w-0 pr-3">
+                      <div className="font-bold text-[#111827] text-sm truncate">{sale.bill_no}</div>
+                      <div className="text-xs text-[#718096] truncate mt-0.5">{sale.customer_name || 'Walking Customer'}</div>
                     </div>
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <p className="text-slate-400 font-bold uppercase tracking-widest mb-1">Status</p>
-                      <p className={`font-bold ${
-                        selectedSale.status === 'Completed' ? 'text-emerald-600' :
-                        selectedSale.status === 'Voided' ? 'text-rose-600' : 'text-amber-600'
-                      }`}>{selectedSale.status}</p>
+                    <div className="flex flex-col items-end shrink-0 mr-4">
+                      <span className="font-semibold text-sm text-[#00D2FF]">
+                        Rs. {parseFloat(sale.grand_total.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[10px] text-[#A0AEC0] mt-0.5">
+                        {formatDate(sale.sale_date)}
+                      </span>
+                    </div>
+                    <div
+                      className="px-2.5 py-1 text-[10px] font-bold uppercase rounded shrink-0 select-none text-center"
+                      style={{
+                        backgroundColor:
+                          sale.status === 'Voided' ? 'rgb(254, 226, 226)' :
+                            sale.status === 'Returned' || sale.status === 'Refunded' ? 'rgb(255, 243, 191)' :
+                              'rgb(236, 253, 245)',
+                        color:
+                          sale.status === 'Voided' ? 'rgb(220, 38, 38)' :
+                            sale.status === 'Returned' || sale.status === 'Refunded' ? 'rgb(153, 101, 21)' :
+                              'rgb(5, 150, 105)'
+                      }}
+                    >
+                      {sale.status}
                     </div>
                   </div>
+                ))
+              )}
+            </div>
+          </div>
 
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Items & Returns</p>
-                    <div className="space-y-2 max-h-[300px] overflow-auto custom-scrollbar">
-                      {selectedSale.items.map((item) => (
-                        <div key={item.id} className="p-3 rounded-xl border border-slate-100 bg-white group/item hover:border-blue-200 transition-colors">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <p className="text-xs font-bold text-slate-700">{item.medicine_name}</p>
-                              <p className="text-[10px] text-slate-400">
-                                Sold: {item.quantity} | Returned: {item.returned_qty}
-                              </p>
-                            </div>
-                            <p className="text-xs font-bold text-slate-700">Rs. {Number(item.subtotal).toLocaleString()}</p>
-                          </div>
-                          
-                          {selectedSale.status !== 'Voided' && item.quantity > item.returned_qty && (
-                            <div className="flex items-center gap-2 pt-2 border-t border-slate-50">
-                              <input 
-                                type="number"
-                                min="1"
-                                max={item.quantity - item.returned_qty}
-                                className="w-16 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                                value={returnQtys[item.id] || 1}
-                                onChange={(e) => setReturnQtys({...returnQtys, [item.id]: parseInt(e.target.value) || 0})}
-                              />
-                              <button 
-                                onClick={() => handleReturn(item)}
-                                className="flex-1 flex items-center justify-center gap-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold transition-colors shadow-sm shadow-amber-200"
-                              >
-                                <RotateCcw size={12} />
-                                Process Return
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+          {/* Right Side: Detail Panel */}
+          <div className="flex-1 bg-white border border-[#E2E8F0] rounded-xl flex flex-col overflow-hidden shadow-sm">
 
-                  <div className="pt-4 border-t border-slate-100 space-y-1">
-                    <div className="flex justify-between text-xs text-slate-500">
-                      <span>Subtotal</span>
-                      <span>Rs. {Number(selectedSale.grand_total).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between text-base font-bold text-slate-800">
-                      <span>Total</span>
-                      <span>Rs. {Number(selectedSale.grand_total).toLocaleString()}</span>
-                    </div>
-                  </div>
+            {/* Details Pane Header */}
+            <div className="bg-[#F7FAFC] px-5 py-4 border-b border-[#E2E8F0] flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3 select-none">
+                <h2 className="text-sm font-bold text-[#111827] uppercase tracking-wider">Items in Selection</h2>
+                {isDetailsLoading && <RotateCcw className="animate-spin text-slate-400" size={14} />}
+              </div>
+
+              {selectedSale && !isDetailsLoading && (
+                <div className="flex gap-2">
+                  {/* Reprint Button */}
+                  <button
+                    onClick={handlePrint}
+                    className="h-9 px-4 bg-[#EBF8FF] hover:bg-[#D6EEFF] text-[#3182CE] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none"
+                    title="Print Receipt"
+                  >
+                    <Printer size={14} /> Reprint Receipt
+                  </button>
+
+                  {/* Void Button */}
+                  {selectedSale.status !== 'Voided' && (
+                    <button
+                      onClick={handleVoid}
+                      className="h-9 px-4 bg-[#FEE2E2] hover:bg-red-100 text-[#DC2626] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none"
+                      title="Void Bill"
+                    >
+                      <Trash2 size={14} /> Void Sale
+                    </button>
+                  )}
+
+                  {/* Return Complete Bill Button */}
+                  {selectedSale.status !== 'Voided' && selectedSale.items.some(item => item.quantity > item.returned_qty) && (
+                    <button
+                      onClick={handleReturnCompleteBill}
+                      className="h-9 px-4 bg-[#FFF3E0] hover:bg-[#FFE0B2] text-[#E65100] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none border-0"
+                      title="Return all remaining items in this bill and restore stock"
+                    >
+                      <RotateCcw size={14} className="text-[#E65100]" /> Return Complete Bill
+                    </button>
+                  )}
                 </div>
               )}
             </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 border-dashed p-12 flex flex-col items-center justify-center text-slate-400 gap-4 text-center">
-              <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center">
-                <Search size={32} className="text-slate-200" />
-              </div>
-              <div>
-                <p className="font-bold text-slate-500">Select an Invoice</p>
-                <p className="text-xs max-w-[200px]">Click on any invoice from the list to view details and manage returns.</p>
-              </div>
-            </div>
-          )}
 
-          {/* Quick Stats */}
-          <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 text-white shadow-lg shadow-blue-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-white/20 rounded-lg">
-                <AlertCircle size={20} />
-              </div>
-              <h4 className="font-bold text-sm tracking-wide">Quick Tip</h4>
-            </div>
-            <p className="text-xs text-blue-100 leading-relaxed mb-4">
-              Voiding an invoice will automatically restore stock for all items. Individual item returns will adjust the total bill amount and restore stock only for the returned quantity.
-            </p>
-            <div className="p-3 bg-white/10 rounded-xl border border-white/10 text-[10px] font-mono">
-              ROLE: {user?.role || 'STAFF'}
+            {/* Details Items List Area */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {!selectedSale ? (
+                <div className="grow flex flex-col items-center justify-center py-24 text-slate-300 select-none">
+                  <FileText size={64} className="opacity-15 mb-3" />
+                  <span className="text-sm font-semibold text-slate-400">Select a bill to view items and process returns</span>
+                </div>
+              ) : isDetailsLoading ? (
+                <div className="grow flex flex-col items-center justify-center py-24 text-slate-400 text-sm select-none">
+                  <RotateCcw className="animate-spin mr-2" size={16} /> Loading details...
+                </div>
+              ) : (
+                <>
+                  {/* Table Header */}
+                  <div className="bg-[#F9FAFB] border-b border-[#E2E8F0] px-5 py-3 grid grid-cols-[1fr_50px_50px_50px_70px_80px_70px_80px] gap-2 text-[11px] font-bold text-[#718096] shrink-0 select-none">
+                    <div>Medicine</div>
+                    <div className="text-center">Sold</div>
+                    <div className="text-center">Ret</div>
+                    <div className="text-center">Rem</div>
+                    <div className="text-right">Price</div>
+                    <div className="text-right">Total</div>
+                    <div className="text-center">Ret Qty</div>
+                    <div className="text-center">Action</div>
+                  </div>
+
+                  {/* Table Rows */}
+                  <div className="flex-1 overflow-auto custom-scrollbar divide-y divide-[#F1F5F9]">
+                    {selectedSale.items.map((item) => {
+                      const remainingQty = item.quantity - item.returned_qty;
+                      const currentTotal = remainingQty * parseFloat(item.unit_price.toString());
+                      const returnVal = returnQtys[item.id] !== undefined ? returnQtys[item.id] : 1;
+                      const canReturn = remainingQty > 0 && selectedSale.status !== 'Voided';
+
+                      return (
+                        <div key={item.id} className="px-5 py-3 grid grid-cols-[1fr_50px_50px_50px_70px_80px_70px_80px] gap-2 text-xs items-center hover:bg-slate-50/50 transition-colors">
+                          <div className="font-semibold text-[#111827] truncate pr-2" title={item.medicine_name}>
+                            {item.medicine_name}
+                          </div>
+                          <div className="text-center text-[#4A5568]">{item.quantity}</div>
+                          <div className="text-center text-[#E53E3E] font-medium">{item.returned_qty}</div>
+                          <div className="text-center text-[#38A169] font-medium">{remainingQty}</div>
+                          <div className="text-right text-[#4A5568]">
+                            Rs. {parseFloat(item.unit_price.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="text-right font-bold text-[#111827]">
+                            Rs. {currentTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="flex justify-center">
+                            <input
+                              type="number"
+                              min="1"
+                              max={remainingQty}
+                              disabled={!canReturn}
+                              className="w-12 h-7 px-1 border border-[#E2E8F0] rounded bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-center disabled:opacity-50"
+                              value={returnVal}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                setReturnQtys(prev => ({ ...prev, [item.id]: val }));
+                              }}
+                            />
+                          </div>
+                          <div className="flex justify-center">
+                            <button
+                              onClick={() => handleReturn(item)}
+                              disabled={!canReturn}
+                              className="h-7 px-3 bg-[#EBF8FF] hover:bg-blue-100 text-[#3182CE] font-bold rounded text-[10px] transition-colors cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Return
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Details Footer Summary */}
+                  <div className="pt-4 border-t border-[#E2E8F0] space-y-2 px-5 py-4 bg-[#F8FAFC] shrink-0">
+                    <div className="flex justify-between text-xs text-[#4B5563]">
+                      <span>Subtotal</span>
+                      <span>Rs. {parseFloat(selectedSale.total_amount.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    {parseFloat(selectedSale.discount_amount.toString()) > 0 && (
+                      <div className="flex justify-between text-xs text-[#4B5563]">
+                        <span>Discount</span>
+                        <span>-Rs. {parseFloat(selectedSale.discount_amount.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    {parseFloat(selectedSale.tax_amount.toString()) > 0 && (
+                      <div className="flex justify-between text-xs text-[#4B5563]">
+                        <span>Tax</span>
+                        <span>Rs. {parseFloat(selectedSale.tax_amount.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm font-bold text-[#111827] pt-1 border-t border-[#F1F5F9]">
+                      <span>Grand Total</span>
+                      <span className="text-base text-[#00D2FF]">Rs. {parseFloat(selectedSale.grand_total.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
