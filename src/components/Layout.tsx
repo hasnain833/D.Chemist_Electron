@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import UpdateBanner from './UpdateBanner';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -86,6 +87,9 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {/* Global in-app update dialog — mirrors WPF UpdateDialog.xaml */}
+      <UpdateBanner />
     </div>
   );
 }

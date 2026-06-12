@@ -22,4 +22,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restoreBackup: () => ipcRenderer.invoke('backup:restore'),
   exportCSV: (suggestedName, csvContent) => ipcRenderer.invoke('reporting:export', suggestedName, csvContent),
   listPrinters: () => ipcRenderer.invoke('printer:list'),
+
+  // Auto-updater — listen for status events pushed from main process
+  onUpdateStatus: (callback) => {
+    ipcRenderer.on('update-status', (_event, payload) => callback(payload));
+    // Return a cleanup function
+    return () => ipcRenderer.removeAllListeners('update-status');
+  },
+  // Trigger download or install from renderer
+  downloadUpdate: () => ipcRenderer.send('update:download'),
+  installUpdate: () => ipcRenderer.send('update:install'),
 });
+

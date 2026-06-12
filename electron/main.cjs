@@ -224,30 +224,66 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  // ── Auto Updater Initialization ───────────────────────────────────────────
+  // ── Auto Updater — push events to renderer for in-app UpdateDialog UI ──
   if (!isDev) {
-    autoUpdater.checkForUpdatesAndNotify();
+    // Push a status event to every open window
+    const sendUpdateStatus = (payload) => {
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('update-status', payload);
+      });
+    };
 
-    autoUpdater.on('update-available', () => {
-      dialog.showMessageBox({
-        type: 'info',
-        title: 'Update Available',
-        message: 'A new version of D.Chemist is available. It will be downloaded in the background.',
+    autoUpdater.on('checking-for-update', () => {
+      sendUpdateStatus({ state: 'checking' });
+    });
+
+    autoUpdater.on('update-available', (info) => {
+      sendUpdateStatus({
+        state: 'available',
+        version: info.version,
+        releaseNotes: typeof info.releaseNotes === 'string'
+          ? info.releaseNotes
+          : (Array.isArray(info.releaseNotes)
+              ? info.releaseNotes.map(r => r.note || '').join('\n')
+              : String(info.releaseNotes || '')),
       });
     });
 
-    autoUpdater.on('update-downloaded', () => {
-      dialog.showMessageBox({
-        type: 'info',
-        title: 'Update Ready',
-        message: 'Update downloaded. The application will restart to install the updates.',
-        buttons: ['Restart Now']
-      }).then((result) => {
-        if (result.response === 0) {
-          autoUpdater.quitAndInstall();
-        }
+    autoUpdater.on('update-not-available', () => {
+      sendUpdateStatus({ state: 'not-available' });
+    });
+
+    autoUpdater.on('download-progress', (progress) => {
+      sendUpdateStatus({ state: 'downloading', percent: Math.round(progress.percent) });
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      sendUpdateStatus({
+        state: 'downloaded',
+        version: info.version,
+        releaseNotes: typeof info.releaseNotes === 'string'
+          ? info.releaseNotes
+          : (Array.isArray(info.releaseNotes)
+              ? info.releaseNotes.map(r => r.note || '').join('\n')
+              : String(info.releaseNotes || '')),
       });
     });
+
+    autoUpdater.on('error', (err) => {
+      sendUpdateStatus({ state: 'error', error: err.message });
+    });
+
+    // Handle 'install now' request from renderer
+    ipcMain.on('update:install', () => {
+      autoUpdater.quitAndInstall();
+    });
+
+    // Handle 'start download' request from renderer
+    ipcMain.on('update:download', () => {
+      autoUpdater.downloadUpdate();
+    });
+
+    autoUpdater.checkForUpdates();
   }
 });
 
