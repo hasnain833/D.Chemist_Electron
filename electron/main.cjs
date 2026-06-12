@@ -205,6 +205,18 @@ app.whenReady().then(async () => {
     return await ReportingService.exportToCSV(focusedWindow, suggestedName, csvContent);
   });
 
+  ipcMain.handle('printer:list', async (event) => {
+    const focusedWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!focusedWindow) return [];
+    try {
+      const printers = await focusedWindow.webContents.getPrintersAsync();
+      return printers;
+    } catch (err) {
+      console.error('[Printer] Error listing printers:', err);
+      return [];
+    }
+  });
+
 
   createWindow();
 

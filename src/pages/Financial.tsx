@@ -149,9 +149,9 @@ export default function Financial() {
           unitPrice: i.unit_price,
           subtotal: i.subtotal
         })),
-        totalAmount: selectedSale.grand_total,
-        discountAmount: 0,
-        taxAmount: 0,
+        totalAmount: selectedSale.total_amount,
+        discountAmount: selectedSale.discount_amount,
+        taxAmount: selectedSale.tax_amount,
         grandTotal: selectedSale.grand_total
       });
       setMessage({ type: 'success', text: `Receipt for #${selectedSale.bill_no} sent to printer.` });

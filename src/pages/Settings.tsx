@@ -44,6 +44,7 @@ export default function Settings() {
   // Printing Settings
   const [isSilentPrintEnabled, setIsSilentPrintEnabled] = useState(false);
   const [printerInterface, setPrinterInterface] = useState('printer:Auto');
+  const [systemPrinters, setSystemPrinters] = useState<{ name: string; isDefault: boolean }[]>([]);
 
   // Receipt Template
   const [template, setTemplate] = useState({
@@ -120,6 +121,15 @@ export default function Settings() {
 
       const savedBackupPath = await (window as any).electronAPI.getSetting('db.backupPath');
       if (savedBackupPath) setBackupPath(savedBackupPath);
+
+      if ((window as any).electronAPI.listPrinters) {
+        try {
+          const printers = await (window as any).electronAPI.listPrinters();
+          setSystemPrinters(printers || []);
+        } catch (printErr) {
+          console.error("Failed to fetch system printers", printErr);
+        }
+      }
     } catch (err) {
       console.error("Failed to load settings", err);
     }
@@ -675,9 +685,11 @@ export default function Settings() {
                         className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
                       >
                         <option value="printer:Auto">printer:Auto (Windows Default)</option>
-                        <option value="printer:XP-80">printer:XP-80</option>
-                        <option value="printer:XP-58">printer:XP-58</option>
-                        <option value="printer:Epson">printer:Epson (Thermal)</option>
+                        {systemPrinters.map((prn) => (
+                          <option key={prn.name} value={`printer:${prn.name}`}>
+                            {prn.name} {prn.isDefault ? '(Default)' : ''}
+                          </option>
+                        ))}
                       </select>
                       <span className="text-[10px] text-[#A0AEC0] italic px-1">If your printer is not in the list, type its name exactly as seen in Windows Settings.</span>
                     </div>
