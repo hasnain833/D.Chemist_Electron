@@ -160,9 +160,13 @@ export default function Financial() {
     }
   };
 
+  // ── Void — matches WPF ExecuteVoidSaleAsync with confirmation ──
   const handleVoid = async () => {
     if (!selectedSale) return;
-    if (!confirm(`Are you sure you want to VOID Bill #${selectedSale.bill_no}? This will restore all stock.`)) return;
+    const ok = window.confirm(
+      `Are you sure you want to VOID Bill #${selectedSale.bill_no}?\n\nThis will restore all stock and mark the sale as Voided.`
+    );
+    if (!ok) return;
 
     try {
       const result = await (window as any).electronAPI.dbQuery('sales:void', {
@@ -170,7 +174,7 @@ export default function Financial() {
         userId: user?.id
       });
       if (result.success) {
-        setMessage({ type: 'success', text: `Sale #${selectedSale.bill_no} has been voided.` });
+        setMessage({ type: 'success', text: `Sale #${selectedSale.bill_no} has been voided successfully.` });
         loadSales();
         setSelectedSale(null);
       } else {
@@ -181,15 +185,24 @@ export default function Financial() {
     }
   };
 
+  // ── Return single item — matches WPF ExecuteReturnAsync with validation ──
   const handleReturn = async (item: SaleItem) => {
     const qty = returnQtys[item.id] || 0;
     const remainingQty = item.quantity - item.returned_qty;
-    if (qty <= 0 || qty > remainingQty) {
-      alert('Invalid return quantity');
+
+    // Mirror WPF: qty <= 0 rejected
+    if (qty <= 0) {
+      setMessage({ type: 'error', text: 'Please specify at least 1 unit to return.' });
+      return;
+    }
+    // Mirror WPF: qty > remaining rejected
+    if (qty > remainingQty) {
+      setMessage({ type: 'error', text: `Return quantity cannot exceed remaining sold quantity (${remainingQty}).` });
       return;
     }
 
-    if (!confirm(`Return ${qty} units of ${item.medicine_name}?`)) return;
+    const ok = window.confirm(`Return ${qty} unit(s) of ${item.medicine_name}?`);
+    if (!ok) return;
 
     try {
       const result = await (window as any).electronAPI.dbQuery('sales:processReturn', {
@@ -203,7 +216,7 @@ export default function Financial() {
       });
 
       if (result.success) {
-        setMessage({ type: 'success', text: 'Return processed successfully.' });
+        setMessage({ type: 'success', text: `Item returned and stock restored.` });
         loadSaleDetails(selectedSale!.id);
         loadSales();
       } else {
@@ -214,15 +227,21 @@ export default function Financial() {
     }
   };
 
+  // ── Return all remaining items in bill — mirrors WPF 'Return Complete Bill' button ──
   const handleReturnCompleteBill = async () => {
     if (!selectedSale) return;
     const remainingItems = selectedSale.items.filter(item => item.quantity > item.returned_qty);
+
+    // Mirror WPF: validate at least one item has remaining qty
     if (remainingItems.length === 0) {
-      alert('No items remaining to return in this bill.');
+      setMessage({ type: 'error', text: 'No items remaining to return in this bill.' });
       return;
     }
 
-    if (!confirm(`Are you sure you want to return ALL remaining items in Bill # ${selectedSale.bill_no}?\n\nThis will restore all stock for every item in this bill that hasn't already been returned.`)) return;
+    const ok = window.confirm(
+      `Are you sure you want to return ALL remaining items in Bill #${selectedSale.bill_no}?\n\nThis will restore all stock for every item that hasn't already been returned.`
+    );
+    if (!ok) return;
 
     try {
       const returnedItems = remainingItems.map(item => ({
