@@ -104,27 +104,32 @@ export default function Reports() {
     }
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (!reportData) return;
-    const headers = ['Date', 'Total Bills', 'Gross Sales', 'Returns', 'Net Sales', 'Tax', 'Discounts', 'Total Profit'];
-    const values = [
-      reportDate,
-      reportData.total_sales_count,
-      reportData.gross_sales,
-      reportData.total_returns,
-      reportData.net_sales,
-      reportData.total_tax,
-      reportData.total_discount,
-      reportData.total_profit
+    
+    // Construct CSV text matching WPF C# format
+    const lines = [
+      "Metric,Value",
+      `Report Date,${reportDate}`,
+      `Gross Sales,${Number(reportData.gross_sales).toFixed(2)}`,
+      `Total Returns,${Number(reportData.total_returns).toFixed(2)}`,
+      `Net Sales,${Number(reportData.net_sales).toFixed(2)}`,
+      `Total Tax,${Number(reportData.total_tax).toFixed(2)}`,
+      `Total Discount,${Number(reportData.total_discount).toFixed(2)}`,
+      `Total Sales Count,${reportData.total_sales_count}`,
+      `FBR Sales Count,${reportData.fbr_sales_count || 0}`,
+      `Internal Sales Count,${reportData.internal_sales_count || 0}`,
+      `Returns Count,${reportData.returns_count || 0}`,
+      `Total Profit,${Number(reportData.total_profit).toFixed(2)}`
     ];
-    const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + values.join(",");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Z_Report_${reportDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    
+    const csvContent = lines.join("\n");
+    const res = await (window as any).electronAPI.exportCSV(`Z_Report_${reportDate}.csv`, csvContent);
+    if (res.success) {
+      alert(`Success: Report exported successfully to:\n${res.filePath}`);
+    } else if (res.message !== 'Export cancelled.') {
+      alert(`Export Error: ${res.message}`);
+    }
   };
 
   const formatTimeString = (dateStr: string) => {

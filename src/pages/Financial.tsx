@@ -6,7 +6,8 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
@@ -72,6 +73,44 @@ export default function Financial() {
       setStatusMessage('Error loading bills.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleExportCSV = async () => {
+    if (filteredSales.length === 0) {
+      alert("No sales history available to export.");
+      return;
+    }
+
+    const headers = ["Bill No", "Customer", "Amount", "Date", "Status"];
+
+    const escapeCsv = (text: string | undefined | null) => {
+      if (!text) return "";
+      const cleaned = String(text);
+      if (cleaned.includes(",") || cleaned.includes('"') || cleaned.includes("\n")) {
+        return `"${cleaned.replace(/"/g, '""')}"`;
+      }
+      return cleaned;
+    };
+
+    const lines = [
+      headers.join(","),
+      ...filteredSales.map(s => [
+        escapeCsv(s.bill_no),
+        escapeCsv(s.customer_name || 'Walking Customer'),
+        s.grand_total,
+        new Date(s.sale_date).toLocaleString(),
+        s.status
+      ].join(","))
+    ];
+
+    const csvContent = lines.join("\n");
+    const today = new Date().toISOString().split('T')[0];
+    const res = await (window as any).electronAPI.exportCSV(`Sales_Report_${today}.csv`, csvContent);
+    if (res.success) {
+      alert(`Success: Sales history exported successfully to:\n${res.filePath}`);
+    } else if (res.message !== 'Export cancelled.') {
+      alert(`Export Error: ${res.message}`);
     }
   };
 
@@ -297,10 +336,17 @@ export default function Financial() {
                   />
                   <button
                     onClick={loadSales}
-                    className="h-8 px-4 border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#4B5563] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none"
+                    className="h-8 px-4 border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#4B5563] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none bg-white"
                   >
                     <RotateCcw size={12} className={isLoading ? "animate-spin" : ""} />
                     Refresh
+                  </button>
+                  <button
+                    onClick={handleExportCSV}
+                    className="h-8 px-4 border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#4B5563] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none bg-white"
+                  >
+                    <Download size={12} />
+                    Export CSV
                   </button>
                 </div>
               </div>

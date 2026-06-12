@@ -199,6 +199,12 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('reporting:export', async (event, suggestedName, csvContent) => {
+    const focusedWindow = BrowserWindow.fromWebContents(event.sender);
+    const ReportingService = require('./services/reportingService.cjs');
+    return await ReportingService.exportToCSV(focusedWindow, suggestedName, csvContent);
+  });
+
 
   createWindow();
 

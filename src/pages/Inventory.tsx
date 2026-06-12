@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Medicine, Category } from '../types/models';
-import { Search, Edit3, Trash2, RefreshCw } from 'lucide-react';
+import { Search, Edit3, Trash2, RefreshCw, Download } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 
@@ -35,6 +35,49 @@ export default function Inventory() {
       console.error(err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleExportCSV = async () => {
+    if (medicines.length === 0) {
+      alert("No inventory data available to export.");
+      return;
+    }
+
+    const headers = ["Name", "Generic", "Category", "Manufacturer", "Dosage", "Strength", "Stock", "Selling Price", "Purchase Price", "Expiry"];
+
+    const escapeCsv = (text: string | undefined | null) => {
+      if (!text) return "";
+      const cleaned = String(text);
+      if (cleaned.includes(",") || cleaned.includes('"') || cleaned.includes("\n")) {
+        return `"${cleaned.replace(/"/g, '""')}"`;
+      }
+      return cleaned;
+    };
+
+    const lines = [
+      headers.join(","),
+      ...medicines.map(m => [
+        escapeCsv(m.name),
+        escapeCsv(m.genericName),
+        escapeCsv(m.categoryName || 'General'),
+        escapeCsv(m.manufacturerName || 'GSK'),
+        escapeCsv(m.dosageForm),
+        escapeCsv(m.strength),
+        m.stockQty || 0,
+        m.sellingPrice || 0,
+        m.purchasePrice || 0,
+        m.expiryDate ? new Date(m.expiryDate).toISOString().split('T')[0] : '—'
+      ].join(","))
+    ];
+
+    const csvContent = lines.join("\n");
+    const today = new Date().toISOString().split('T')[0];
+    const res = await (window as any).electronAPI.exportCSV(`Inventory_Report_${today}.csv`, csvContent);
+    if (res.success) {
+      alert(`Success: Inventory report exported successfully to:\n${res.filePath}`);
+    } else if (res.message !== 'Export cancelled.') {
+      alert(`Export Error: ${res.message}`);
     }
   };
 
@@ -271,6 +314,9 @@ export default function Inventory() {
             </div>
             <button onClick={fetchData} className="flex items-center gap-2 text-sm text-[#4B5563] hover:text-[#111827] font-semibold transition-colors">
               <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} /> Refresh
+            </button>
+            <button onClick={handleExportCSV} className="flex items-center gap-2 text-sm text-[#4B5563] hover:text-[#111827] font-semibold transition-colors cursor-pointer select-none">
+              <Download size={16} /> Export CSV
             </button>
           </div>
 

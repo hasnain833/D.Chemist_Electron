@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   createBackup: (outputDirPath) => ipcRenderer.invoke('backup:create', outputDirPath),
   restoreBackup: () => ipcRenderer.invoke('backup:restore'),
+  exportCSV: (suggestedName, csvContent) => ipcRenderer.invoke('reporting:export', suggestedName, csvContent),
 });
