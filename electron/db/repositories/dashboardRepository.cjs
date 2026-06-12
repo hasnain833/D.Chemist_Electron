@@ -45,12 +45,12 @@ const DashboardRepository = {
   /** Actual list of low stock items. */
   async getLowStockList(limit = 10) {
     return query(`
-      SELECT m.name, SUM(b.remaining_units) as total_remaining
+      SELECT m.name, SUM(b.remaining_units) as stock_level
       FROM inventory_batches b
       JOIN medicines m ON m.id = b.medicine_id
       GROUP BY m.name
       HAVING COALESCE(SUM(b.remaining_units), 0) <= 10
-      ORDER BY total_remaining ASC
+      ORDER BY stock_level ASC
       LIMIT $1
     `, [limit]);
   },
@@ -70,7 +70,7 @@ const DashboardRepository = {
   /** List of recent sales. */
   async getRecentSalesList(limit = 10) {
     return query(`
-      SELECT invoice_no as invoice, sale_date as date, grand_total as total
+      SELECT bill_no AS invoice_no, sale_date AS date, grand_total AS total_amount
       FROM sales
       ORDER BY sale_date DESC
       LIMIT $1

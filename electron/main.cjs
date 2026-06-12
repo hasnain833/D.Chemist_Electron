@@ -47,7 +47,7 @@ app.whenReady().then(async () => {
 
   // Initialise PostgreSQL pool and register all db:query IPC handlers
   const { registerDbHandlers, initDb } = require('./db/ipcHandlers.cjs');
-  initDb(store);
+  await initDb(store);
   registerDbHandlers();
 
   // ── Store / Settings IPC ──────────────────────────────────────────────────

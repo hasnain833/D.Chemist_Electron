@@ -49,6 +49,8 @@ const routes = {
   'medicines:create':      (a) => MedicineRepo.create(a),
   'medicines:update':      (a) => MedicineRepo.update(a),
   'medicines:delete':      (a) => MedicineRepo.delete(a.id),
+  'medicines:deleteBulk':  (a) => MedicineRepo.deleteBulk(a.ids),
+  'medicines:updateMetadata': (a) => MedicineRepo.updateMetadata(a),
 
   // ── Batches ───────────────────────────────────────────────────────────────
   'batches:getByMedicine': (a) => BatchRepo.getByMedicineId(a.medicineId),
@@ -136,18 +138,21 @@ function registerDbHandlers() {
   });
 }
 
-/**
- * Initialise the DB pool from current store settings.
- * Call this from app.whenReady() after the store is set up.
- */
-function initDb(store) {
+const { initDbAndSchema } = require('./init.cjs');
+
+async function initDb(store) {
   const cfg = {
     host:     store.get('db.host',     'localhost'),
     port:     store.get('db.port',     5432),
-    database: store.get('db.database', 'dchemist'),
+    database: store.get('db.database', 'pharmacy'),
     user:     store.get('db.user',     'postgres'),
-    password: store.get('db.password', ''),
+    password: store.get('db.password', 'h4276246'),
   };
+  try {
+    await initDbAndSchema(cfg);
+  } catch (err) {
+    console.error('[DB] Failed to run database schema initialization and migrations:', err);
+  }
   createPool(cfg);
   console.log(`[DB] Connected to PostgreSQL at ${cfg.host}:${cfg.port}/${cfg.database}`);
 }
