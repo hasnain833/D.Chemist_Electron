@@ -36,6 +36,10 @@ const routes = {
     const { password, ...safeUser } = user;
     return safeUser;
   },
+  'auth:changePassword':   (a) => {
+    const AuthService = require('../services/authService.cjs');
+    return AuthService.changePassword(a.userId, a.newPassword);
+  },
   'users:create':          (a) => UserRepo.create(a),
   'users:update':          (a) => UserRepo.update(a),
   'users:updatePassword':  (a) => UserRepo.updatePassword(a.id, a.hashedPassword),

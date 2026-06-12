@@ -47,7 +47,36 @@ const BackupService = {
         }
       });
     });
+  },
+
+  /**
+   * Restores a database backup from a .sql file using psql.
+   */
+  async restoreBackup(dbCfg, backupFilePath) {
+    return new Promise((resolve, reject) => {
+      if (!fs.existsSync(backupFilePath)) {
+        return resolve({ success: false, message: 'Backup file does not exist.' });
+      }
+
+      // Environment variables for psql to avoid password prompt
+      const env = {
+        ...process.env,
+        PGPASSWORD: dbCfg.password
+      };
+
+      // Construct psql command string
+      const cmd = `psql -U ${dbCfg.user} -h ${dbCfg.host} -p ${dbCfg.port} -d ${dbCfg.database} -f "${backupFilePath}"`;
+
+      exec(cmd, { env }, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`[BackupService] restore error: ${error}`);
+          return resolve({ success: false, message: error.message, error });
+        }
+        resolve({ success: true });
+      });
+    });
   }
 };
 
 module.exports = BackupService;
+

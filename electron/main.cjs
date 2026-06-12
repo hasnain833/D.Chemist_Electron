@@ -118,6 +118,44 @@ app.whenReady().then(async () => {
     return await BackupService.createBackup(dbCfg, outputDirPath);
   });
 
+  ipcMain.handle('backup:restore', async (event) => {
+    const focusedWindow = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(focusedWindow, {
+      title: 'Select Backup SQL File',
+      filters: [{ name: 'SQL Files', extensions: ['sql'] }],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, message: 'Restore cancelled.' };
+    }
+
+    const backupFilePath = result.filePaths[0];
+    const dbCfg = {
+      host:     store.get('db.host',     'localhost'),
+      port:     store.get('db.port',     5432),
+      database: store.get('db.database', 'pharmacy'),
+      user:     store.get('db.user',     'postgres'),
+      password: store.get('db.password', 'h4276246'),
+    };
+
+    try {
+      const { closePool, createPool } = require('./db/pool.cjs');
+      await closePool();
+
+      const restoreRes = await BackupService.restoreBackup(dbCfg, backupFilePath);
+
+      // Always recreate pool
+      createPool(dbCfg);
+
+      return restoreRes;
+    } catch (err) {
+      console.error('[DB] Error during backup restore:', err);
+      return { success: false, message: err.message };
+    }
+  });
+
+
   createWindow();
 
   app.on('activate', () => {

@@ -19,4 +19,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fiscalReport: (saleData) => ipcRenderer.invoke('fiscal:report', saleData),
   
   createBackup: (outputDirPath) => ipcRenderer.invoke('backup:create', outputDirPath),
+  restoreBackup: () => ipcRenderer.invoke('backup:restore'),
 });

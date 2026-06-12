@@ -29,7 +29,24 @@ const AuthService = {
     async hashPassword(password) {
         const salt = await bcrypt.genSalt(10);
         return await bcrypt.hash(password, salt);
+    },
+
+    async changePassword(userId, newPassword) {
+        const UserRepo = require('../db/repositories/userRepository.cjs');
+        const AuditRepo = require('../db/repositories/auditRepository.cjs');
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+        
+        await UserRepo.updatePassword(userId, hashedPassword);
+        await AuditRepo.log({
+            userId,
+            action: 'Security',
+            details: 'Password changed successfully.'
+        });
+        
+        return { success: true };
     }
 };
 
 module.exports = AuthService;
+

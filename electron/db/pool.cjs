@@ -59,4 +59,16 @@ async function queryOne(sql, params = []) {
   return rows[0] ?? null;
 }
 
-module.exports = { createPool, getPool, query, queryOne };
+async function closePool() {
+  if (_pool) {
+    try {
+      await _pool.end();
+    } catch (err) {
+      // ignore
+    }
+    _pool = null;
+  }
+}
+
+module.exports = { createPool, getPool, query, queryOne, closePool };
+

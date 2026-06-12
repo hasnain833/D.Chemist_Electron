@@ -193,17 +193,35 @@ export default function Settings() {
     }
   };
 
-  const handleRestoreInstructions = () => {
+  const handleRestoreBackup = async () => {
     if (user?.role !== 'ADMIN') {
       alert("Access Denied: Only administrators can restore database backups.");
       return;
     }
-    alert(
-      "Database Restore Instructions:\n\n" +
-      "Restoring a backup will overwrite your current database. To prevent data corruption, " +
-      "please execute the restore command directly on the database terminal:\n\n" +
-      `psql -U ${dbConfig.user} -h ${dbConfig.host} -p ${dbConfig.port} -d ${dbConfig.database} -f <backup_file_path.sql>`
-    );
+    if (!window.confirm("Warning: Database Restoration\n\nRestoring a backup will overwrite all current tables and data in the active PostgreSQL database. Any unsaved transactions will be lost.\n\nAre you sure you want to proceed?")) {
+      return;
+    }
+    setBackupStatus('Restoring database from backup...');
+    try {
+      const res = await (window as any).electronAPI.restoreBackup();
+      if (res.success) {
+        alert("Success: Database restoration completed successfully.");
+        setBackupStatus(`Last restore: ${new Date().toLocaleTimeString()} (Success)`);
+        // Log to audit log
+        await (window as any).electronAPI.dbQuery('audit:log', {
+          userId: user?.id,
+          action: 'Security',
+          details: 'Database restored successfully from backup file.'
+        });
+        if (isLogsExpanded) fetchAuditLogs();
+      } else {
+        alert(`Restore Error: ${res.message || 'Restoration failed.'}`);
+        setBackupStatus('Restore failed.');
+      }
+    } catch (err: any) {
+      alert(`Restore Error: ${err.message}`);
+      setBackupStatus('Restore failed.');
+    }
   };
 
   const handleClearSales = async () => {
@@ -312,7 +330,7 @@ export default function Settings() {
                     <HardDrive size={14} /> Backup Database
                   </button>
                   <button
-                    onClick={handleRestoreInstructions}
+                    onClick={handleRestoreBackup}
                     className="h-9 px-4 border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#4B5563] font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none bg-white"
                   >
                     <RotateCcw size={14} /> Restore Database
