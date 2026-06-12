@@ -205,7 +205,7 @@ export default function Settings() {
   };
 
   const handleBackup = async () => {
-    if (user?.role !== 'ADMIN') {
+    if (user?.role !== 'Admin') {
       alert("Access Denied: Only administrators can perform database backups.");
       return;
     }
@@ -226,7 +226,7 @@ export default function Settings() {
   };
 
   const handleRestoreBackup = async () => {
-    if (user?.role !== 'ADMIN') {
+    if (user?.role !== 'Admin') {
       alert("Access Denied: Only administrators can restore database backups.");
       return;
     }
@@ -257,7 +257,7 @@ export default function Settings() {
   };
 
   const handleClearSales = async () => {
-    if (user?.role !== 'ADMIN') {
+    if (user?.role !== 'Admin') {
       alert("Access Denied: Only administrators can clear sales data.");
       return;
     }
@@ -367,7 +367,7 @@ export default function Settings() {
                   >
                     <RotateCcw size={14} /> Restore Database
                   </button>
-                  {user?.role === 'ADMIN' && (
+                  {user?.role === 'Admin' && (
                     <button
                       onClick={handleClearSales}
                       className="h-9 px-4 border border-red-200 hover:bg-red-50 text-red-600 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer select-none bg-white"

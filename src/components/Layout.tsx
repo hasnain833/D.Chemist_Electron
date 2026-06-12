@@ -36,22 +36,27 @@ export default function Layout() {
 
         {/* Center: Navigation Links */}
         <nav className="flex items-center h-full gap-1 overflow-x-auto no-scrollbar py-1">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-1.5 rounded-md transition-all text-xs font-bold whitespace-nowrap ${
-                  isActive
-                    ? 'bg-white/20 text-white shadow-xs'
-                    : 'text-white/80 hover:bg-white/10 hover:text-white'
-                }`
-              }
-            >
-              <item.icon size={16} className="shrink-0" />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          {navItems
+            .filter(item => {
+              const isAdminOnly = ['/financials', '/reports', '/settings'].includes(item.path);
+              return !isAdminOnly || user?.role === 'Admin';
+            })
+            .map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  `flex items-center gap-2 px-3 py-1.5 rounded-md transition-all text-xs font-bold whitespace-nowrap ${
+                    isActive
+                      ? 'bg-white/20 text-white shadow-xs'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white'
+                  }`
+                }
+              >
+                <item.icon size={16} className="shrink-0" />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
         </nav>
 
         {/* Right: User profile and Logout */}

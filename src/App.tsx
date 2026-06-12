@@ -26,9 +26,13 @@ export default function App() {
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/stock-in" element={<StockIn />} />
               <Route path="/purchase-history" element={<PurchaseHistory />} />
-              <Route path="/financials" element={<Financial />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/settings" element={<Settings />} />
+
+              {/* Admin Only Routes */}
+              <Route element={<ProtectedRoute adminOnly={true} />}>
+                <Route path="/financials" element={<Financial />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/settings" element={<Settings />} />
+              </Route>
 
               {/* Fallback route */}
               <Route path="*" element={<Navigate to="/" replace />} />
