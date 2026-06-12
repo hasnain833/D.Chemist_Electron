@@ -117,6 +117,9 @@ export default function Settings() {
 
       setTemplate(prev => ({ ...prev, ...savedTemplate }));
       if (version) setAppVersion(version);
+
+      const savedBackupPath = await (window as any).electronAPI.getSetting('db.backupPath');
+      if (savedBackupPath) setBackupPath(savedBackupPath);
     } catch (err) {
       console.error("Failed to load settings", err);
     }
@@ -350,7 +353,10 @@ export default function Settings() {
                     type="text"
                     className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
                     value={backupPath}
-                    onChange={(e) => setBackupPath(e.target.value)}
+                    onChange={(e) => {
+                      setBackupPath(e.target.value);
+                      (window as any).electronAPI.setSetting('db.backupPath', e.target.value);
+                    }}
                     placeholder="e.g. C:\DChemist_Backups"
                   />
                 </div>

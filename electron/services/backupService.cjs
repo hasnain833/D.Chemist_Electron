@@ -14,7 +14,16 @@ const BackupService = {
    */
   async createBackup(dbCfg, outputDirPath) {
     return new Promise((resolve, reject) => {
-      // Basic safeguard for pg_dump execution path (Assuming pg_dump is in Windows PATH or defined in env var)
+      // Ensure output directory exists
+      try {
+        if (!fs.existsSync(outputDirPath)) {
+          fs.mkdirSync(outputDirPath, { recursive: true });
+        }
+      } catch (err) {
+        console.error(`[BackupService] Directory creation error: ${err}`);
+        return resolve({ success: false, message: `Failed to create backup directory: ${err.message}` });
+      }
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupFilename = `backup_${dbCfg.database}_${timestamp}.sql`;
       const outputPath = path.join(outputDirPath, backupFilename);
@@ -38,6 +47,28 @@ const BackupService = {
         if (fs.existsSync(outputPath)) {
           const stats = fs.statSync(outputPath);
           if (stats.size > 0) {
+            // Clean up old backups (keep only latest 7)
+            try {
+              const files = fs.readdirSync(outputDirPath)
+                .filter(f => f.startsWith('backup_') && f.endsWith('.sql'))
+                .map(f => {
+                  const fullPath = path.join(outputDirPath, f);
+                  return { name: f, path: fullPath, mtime: fs.statSync(fullPath).mtime };
+                });
+              
+              if (files.length > 7) {
+                // Sort descending by modified time (latest first)
+                files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+                const oldFiles = files.slice(7);
+                for (const file of oldFiles) {
+                  fs.unlinkSync(file.path);
+                  console.log(`[BackupService] Cleaned up old backup: ${file.name}`);
+                }
+              }
+            } catch (cleanupErr) {
+              console.error(`[BackupService] Cleanup error: ${cleanupErr}`);
+            }
+
             resolve({ success: true, filePath: outputPath });
           } else {
             resolve({ success: false, message: 'Backup file generated but is 0 bytes.' });

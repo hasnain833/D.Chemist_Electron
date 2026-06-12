@@ -50,6 +50,50 @@ app.whenReady().then(async () => {
   await initDb(store);
   registerDbHandlers();
 
+  // ─── Daily Scheduled Auto Backup ──────────────────────────────────────────
+  try {
+    const autoBackupEnabled = store.get('db.autoBackupEnabled', true);
+    const today = new Date().toISOString().split('T')[0];
+    const lastBackupDate = store.get('db.lastBackupDate', '');
+    if (autoBackupEnabled && lastBackupDate !== today) {
+      setTimeout(async () => {
+        try {
+          const BackupService = require('./services/backupService.cjs');
+          const AuditRepo = require('./db/repositories/auditRepository.cjs');
+          const path = require('path');
+          
+          const dbCfg = {
+            host:     store.get('db.host',     'localhost'),
+            port:     store.get('db.port',     5432),
+            database: store.get('db.database', 'pharmacy'),
+            user:     store.get('db.user',     'postgres'),
+            password: store.get('db.password', 'h4276246'),
+          };
+          const backupPath = store.get('db.backupPath', 'C:\\DChemist_Backups');
+
+          console.log('[Backup] Running scheduled background auto-backup...');
+          const res = await BackupService.createBackup(dbCfg, backupPath);
+          if (res.success) {
+            console.log(`[Backup] Auto-backup completed: ${res.filePath}`);
+            store.set('db.lastBackupDate', today);
+            
+            await AuditRepo.log({
+              userId: 0,
+              action: 'System',
+              details: `Automatic database backup created: ${path.basename(res.filePath)}`
+            });
+          } else {
+            console.error('[Backup] Scheduled auto-backup failed:', res.message);
+          }
+        } catch (backupErr) {
+          console.error('[Backup] Background auto-backup execution failed:', backupErr);
+        }
+      }, 5000); // Run 5 seconds after startup
+    }
+  } catch (schedErr) {
+    console.error('[Backup] Scheduled auto-backup check failed:', schedErr);
+  }
+
   // ── Store / Settings IPC ──────────────────────────────────────────────────
   ipcMain.handle('store:get', (_event, key) => store.get(key));
   ipcMain.on('store:set', (_event, key, val) => store.set(key, val));

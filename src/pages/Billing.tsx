@@ -34,8 +34,12 @@ export default function Billing() {
   const addToCart = useCallback((med: Medicine) => {
     setCart(prev => {
       const existing = prev.find(item => item.id === med.id);
+      const unitsPerBox = (med.packetsPerBox || 1) * (med.unitsPerPack || 1);
       if (existing) {
-        return prev.map(item => item.id === med.id ? { ...item, qty: item.qty + 1 } : item);
+        const newQty = existing.qty + 1;
+        const qtyBox = unitsPerBox > 1 ? Math.floor(newQty / unitsPerBox) : 0;
+        const qtyTablet = unitsPerBox > 1 ? newQty % unitsPerBox : newQty;
+        return prev.map(item => item.id === med.id ? { ...item, qty: newQty, qtyBox, qtyTablet } : item);
       } else {
         return [...prev, {
           id: med.id,
@@ -44,8 +48,11 @@ export default function Billing() {
           dosageForm: med.dosageForm,
           strength: med.strength,
           qty: 1,
+          qtyBox: 0,
+          qtyTablet: 1,
           price: med.sellingPrice || 0,
-          batchNo: med.batchNo // If available from search (though FIFO usually handles this in repo)
+          batchNo: med.batchNo, // If available from search (though FIFO usually handles this in repo)
+          unitsPerBox
         }];
       }
     });
@@ -108,9 +115,18 @@ export default function Billing() {
     setCart(prev => prev.filter(item => item.id !== id));
   };
 
-  const updateQty = (id: number, qty: number) => {
-    if (qty < 1) return;
-    setCart(prev => prev.map(item => item.id === id ? { ...item, qty } : item));
+  const updateCartItemQty = (id: number, field: 'qtyBox' | 'qtyTablet', value: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const updated = { ...item };
+      if (field === 'qtyBox') {
+        updated.qtyBox = Math.max(0, value);
+      } else if (field === 'qtyTablet') {
+        updated.qtyTablet = Math.max(0, value);
+      }
+      updated.qty = (updated.qtyBox * updated.unitsPerBox) + updated.qtyTablet;
+      return updated;
+    }));
   };
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -298,14 +314,20 @@ export default function Billing() {
                     {item.name}
                   </div>
                   <div className="w-[100px] px-1">
-                    <input type="text" placeholder="Box" className="premium-input w-full h-8 text-center text-sm" disabled />
+                    <input
+                      type="number"
+                      placeholder="Box"
+                      value={item.qtyBox === 0 ? '' : item.qtyBox}
+                      onChange={(e) => updateCartItemQty(item.id, 'qtyBox', parseInt(e.target.value) || 0)}
+                      className="premium-input w-full h-8 text-center text-sm"
+                    />
                   </div>
                   <div className="w-[100px] px-1">
                     <input
                       type="number"
                       placeholder="Tab"
-                      value={item.qty}
-                      onChange={(e) => updateQty(item.id, Number(e.target.value))}
+                      value={item.qtyTablet === 0 ? '' : item.qtyTablet}
+                      onChange={(e) => updateCartItemQty(item.id, 'qtyTablet', parseInt(e.target.value) || 0)}
                       className="premium-input w-full h-8 text-center text-sm"
                     />
                   </div>
