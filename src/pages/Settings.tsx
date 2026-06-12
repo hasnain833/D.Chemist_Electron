@@ -64,6 +64,12 @@ export default function Settings() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isLogsExpanded, setIsLogsExpanded] = useState(false);
 
+  // Integrations (FBR Config)
+  const [fbrIsLive, setFbrIsLive] = useState(false);
+  const [fbrPosId, setFbrPosId] = useState('');
+  const [fbrApiUrl, setFbrApiUrl] = useState('');
+  const [fbrToken, setFbrToken] = useState('');
+
   useEffect(() => {
     loadConfig();
   }, []);
@@ -98,6 +104,16 @@ export default function Settings() {
       if (profile.phone) setPharmacyPhone(profile.phone);
       if (profile.license) setPharmacyLicense(profile.license);
       if (profile.logo) setPharmacyLogo(profile.logo);
+
+      const isLiveSetting = await (window as any).electronAPI.getSetting('fbr.isLive') || 'false';
+      const posIdSetting = await (window as any).electronAPI.getSetting('fbr.posId') || '';
+      const apiUrlSetting = await (window as any).electronAPI.getSetting('fbr.apiUrl') || '';
+      const tokenSetting = await (window as any).electronAPI.getSetting('fbr.token') || '';
+
+      setFbrIsLive(isLiveSetting === 'true');
+      setFbrPosId(posIdSetting);
+      setFbrApiUrl(apiUrlSetting);
+      setFbrToken(tokenSetting);
 
       setTemplate(prev => ({ ...prev, ...savedTemplate }));
       if (version) setAppVersion(version);
@@ -167,6 +183,22 @@ export default function Settings() {
       alert("Success: Printer configuration and receipt template updated.");
     } catch (err: any) {
       alert(`Error saving printer: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveIntegrations = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      await (window as any).electronAPI.setSetting('fbr.isLive', fbrIsLive ? 'true' : 'false');
+      await (window as any).electronAPI.setSetting('fbr.posId', fbrPosId);
+      await (window as any).electronAPI.setSetting('fbr.apiUrl', fbrApiUrl);
+      await (window as any).electronAPI.setSetting('fbr.token', fbrToken);
+      alert("Success: FBR fiscal integration settings updated.");
+    } catch (err: any) {
+      alert(`Error saving integrations: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -531,12 +563,70 @@ export default function Settings() {
           {/* Section 3: Integrations */}
           <div className="flex flex-col gap-4">
             <h2 className="text-lg font-bold text-[#111827] flex items-center gap-2 px-1">
-              <ShieldCheck size={18} className="text-[#3a7bd5]" /> Integrations
+              <ShieldCheck size={18} className="text-[#3a7bd5]" /> FBR Fiscal Integration Settings
             </h2>
             <div className="border border-[#E2E8F0] rounded-xl bg-white p-6 shadow-sm">
-              <p className="text-xs text-[#4B5563] font-medium leading-relaxed">
-                External fiscal reporting is currently disabled for this deployment.
-              </p>
+              <form onSubmit={handleSaveIntegrations} className="space-y-6">
+                <p className="text-xs text-[#4B5563] font-medium leading-relaxed">
+                  Configure external reporting to the Federal Board of Revenue (FBR) POS integration.
+                </p>
+
+                <div className="flex items-center justify-between p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl select-none mb-6">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-slate-700">FBR Integration Live Mode</span>
+                    <span className="text-[10px] text-slate-400 font-medium">Transmit sales data directly to the FBR live API (disabling sends dummy sandbox payloads)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFbrIsLive(!fbrIsLive)}
+                    className={`w-12 h-6 rounded-full relative transition-all ${fbrIsLive ? 'bg-blue-600 shadow-lg shadow-blue-100' : 'bg-slate-200'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${fbrIsLive ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex flex-col gap-1.5 col-span-1">
+                    <span className="text-[11px] font-semibold text-[#4B5563]">FBR POS ID</span>
+                    <input
+                      type="text"
+                      value={fbrPosId}
+                      onChange={(e) => setFbrPosId(e.target.value)}
+                      placeholder="e.g. FBR-POS-12345"
+                      className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 col-span-2">
+                    <span className="text-[11px] font-semibold text-[#4B5563]">FBR API Endpoint URL</span>
+                    <input
+                      type="text"
+                      value={fbrApiUrl}
+                      onChange={(e) => setFbrApiUrl(e.target.value)}
+                      placeholder="https://ims.fbr.gov.pk/api/v3/Post/PostInvoice"
+                      className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 md:col-span-3">
+                    <span className="text-[11px] font-semibold text-[#4B5563]">API Authorization Token</span>
+                    <input
+                      type="password"
+                      value={fbrToken}
+                      onChange={(e) => setFbrToken(e.target.value)}
+                      placeholder="Enter API token key..."
+                      className="h-9 px-3 border border-[#E2E8F0] rounded-lg bg-[#F8FAFC] focus:outline-none focus:border-[#00D2FF] text-xs font-semibold text-[#111827]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-[#F1F5F9]">
+                  <button
+                    type="submit"
+                    className="h-10 px-6 bg-linear-to-r from-[#00D2FF] to-[#3a7bd5] hover:from-[#00bfff] hover:to-[#2b6cb0] text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm shadow-[#00D2FF]/20 select-none cursor-pointer border-0"
+                  >
+                    <Save size={14} /> Save Integration Details
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
 
